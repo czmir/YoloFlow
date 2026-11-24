@@ -1,0 +1,47 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+*.egg-info/
+dist/
+build/
+
+# Node
+node_modules/
+frontend/dist/
+frontend/tsconfig.tsbuildinfo
+
+# Data & artifacts
+data/datasets/
+data/workspaces/
+data/uploads/
+data/runs/
+data/acceptance-report.json
+data/acceptance-stdout.txt
+data/datasets/
+data/workspaces/
+data/*.db
+*.pt
+*.onnx
+!data/samples/**
+
+# SQLite
+*.db
+*.db-shm
+*.db-wal
+
+# Env
+.env
+.env.local
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
