@@ -50,6 +50,7 @@ class TrainingJob(Base):
     imgsz: Mapped[int] = mapped_column(Integer, default=320)
     base_weights: Mapped[str] = mapped_column(String(256), default="yolov8n.pt")
     resume_from: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    parent_job_id: Mapped[int | None] = mapped_column(ForeignKey("training_jobs.id"), nullable=True)
     workspace_dir: Mapped[str | None] = mapped_column(String(512), nullable=True)
     best_weights: Mapped[str | None] = mapped_column(String(512), nullable=True)
     onnx_path: Mapped[str | None] = mapped_column(String(512), nullable=True)

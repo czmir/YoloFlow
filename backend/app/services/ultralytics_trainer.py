@@ -12,6 +12,8 @@ from ultralytics import YOLO
 from app.config import settings
 from app.database import SessionLocal
 from app.models import JobStatus, MetricPoint, TrainingJob
+from app.services.experiment_artifacts import collect_post_train_artifacts
+from app.services.job_state import claim_pending_job
 from app.services.onnx_export import export_to_onnx
 
 
@@ -160,9 +162,12 @@ def run_training_job(job_id: int) -> None:
                 job.finished_at = datetime.now(timezone.utc)
                 job.best_weights = str(best) if best.exists() else None
                 job.onnx_path = str(onnx_path) if onnx_path else None
+                artifacts = collect_post_train_artifacts(job)
                 job.metrics_json = {
                     **metrics_summary,
+                    **artifacts,
                     "elapsed_seconds": elapsed,
+                    "resumed_from": job.resume_from,
                 }
                 db.commit()
     except Exception as exc:  # noqa: BLE001
@@ -214,12 +219,7 @@ class TrainingQueue:
 
     def _dispatch_next(self) -> None:
         with SessionLocal() as db:
-            pending = (
-                db.query(TrainingJob)
-                .filter(TrainingJob.status == JobStatus.pending.value)
-                .order_by(TrainingJob.created_at)
-                .first()
-            )
+            pending = claim_pending_job(db)
             if pending:
                 self.enqueue(pending.id)
 

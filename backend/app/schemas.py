@@ -112,6 +112,7 @@ class TrainingJobOut(BaseModel):
     id: int
     name: str
     dataset_id: int
+    parent_job_id: int | None = None
     status: str
     device: str
     epochs: int
@@ -220,3 +221,42 @@ class CheckpointVerifyResult(BaseModel):
     path: str
     loadable: bool
     message: str
+
+
+class ExperimentSummary(BaseModel):
+    job_id: int
+    name: str
+    status: str
+    dataset_id: int
+    parent_job_id: int | None
+    epochs: int
+    elapsed_seconds: float | None
+    map50: float | None
+    map50_95: float | None
+    created_at: datetime
+
+
+class ExperimentCompareRequest(BaseModel):
+    job_ids: list[int] = Field(min_length=2, max_length=4)
+
+
+class ExperimentSeries(BaseModel):
+    job_id: int
+    name: str
+    epochs: list[int]
+    train_loss: list[float | None]
+    val_map50: list[float | None]
+    val_map50_95: list[float | None]
+
+
+class ExperimentCompareResponse(BaseModel):
+    jobs: list[ExperimentSummary]
+    series: list[ExperimentSeries]
+    metric_table: list[dict[str, Any]]
+
+
+class ConfusionMatrixResponse(BaseModel):
+    available: bool
+    matrix: list[list[float]] | None = None
+    image_url: str | None = None
+    class_names: list[str] = Field(default_factory=list)

@@ -60,6 +60,7 @@ def _migrate_sqlite() -> None:
         "ALTER TABLE datasets ADD COLUMN split_config_json JSON",
         "ALTER TABLE training_jobs ADD COLUMN cancel_requested BOOLEAN DEFAULT 0",
         "ALTER TABLE training_jobs ADD COLUMN pause_requested BOOLEAN DEFAULT 0",
+        "ALTER TABLE training_jobs ADD COLUMN parent_job_id INTEGER",
     ]
     with engine.begin() as conn:
         for stmt in stmts:

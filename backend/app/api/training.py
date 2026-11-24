@@ -19,6 +19,7 @@ from app.schemas import (
     TrainingQueueOut,
 )
 from app.services.hardware import detect_device
+from app.services.job_state import apply_cancel, apply_pause, apply_unpause, can_resume_new_job
 from app.services.training_queue import get_queue
 
 router = APIRouter(prefix="/training", tags=["training"])
@@ -146,18 +147,10 @@ def cancel_job(job_id: int, db: Session = Depends(get_db)) -> TrainingJob:
     job = db.get(TrainingJob, job_id)
     if not job:
         raise HTTPException(status_code=404, detail="job not found")
-    if job.status == JobStatus.pending.value:
-        job.status = JobStatus.cancelled.value
-        job.finished_at = job.finished_at or job.created_at
-    elif job.status == JobStatus.running.value:
-        job.cancel_requested = True
-    elif job.status == JobStatus.paused.value:
-        job.status = JobStatus.cancelled.value
-    else:
-        raise HTTPException(status_code=409, detail=f"cannot cancel job in status {job.status}")
-    db.commit()
-    db.refresh(job)
-    return job
+    try:
+        return apply_cancel(db, job)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @router.post("/jobs/{job_id}/pause", response_model=TrainingJobOut)
@@ -165,15 +158,10 @@ def pause_job(job_id: int, db: Session = Depends(get_db)) -> TrainingJob:
     job = db.get(TrainingJob, job_id)
     if not job:
         raise HTTPException(status_code=404, detail="job not found")
-    if job.status == JobStatus.running.value:
-        job.pause_requested = True
-    elif job.status == JobStatus.pending.value:
-        job.status = JobStatus.paused.value
-    else:
-        raise HTTPException(status_code=409, detail=f"cannot pause job in status {job.status}")
-    db.commit()
-    db.refresh(job)
-    return job
+    try:
+        return apply_pause(db, job)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @router.post("/jobs/{job_id}/unpause", response_model=TrainingJobOut)
@@ -181,11 +169,10 @@ def unpause_job(job_id: int, db: Session = Depends(get_db)) -> TrainingJob:
     job = db.get(TrainingJob, job_id)
     if not job:
         raise HTTPException(status_code=404, detail="job not found")
-    if job.status != JobStatus.paused.value:
-        raise HTTPException(status_code=409, detail="job is not paused")
-    job.status = JobStatus.pending.value
-    db.commit()
-    db.refresh(job)
+    try:
+        job = apply_unpause(db, job)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     get_queue().kick()
     return job
 
@@ -195,8 +182,9 @@ def resume_job(job_id: int, db: Session = Depends(get_db)) -> TrainingJob:
     parent = db.get(TrainingJob, job_id)
     if not parent:
         raise HTTPException(status_code=404, detail="job not found")
-    if not parent.best_weights:
-        raise HTTPException(status_code=422, detail="no checkpoint available")
+    ok, reason = can_resume_new_job(parent)
+    if not ok:
+        raise HTTPException(status_code=422, detail=reason)
 
     verify = verify_checkpoint(job_id, parent.best_weights, db)
     if not verify.loadable:
@@ -213,6 +201,7 @@ def resume_job(job_id: int, db: Session = Depends(get_db)) -> TrainingJob:
         imgsz=parent.imgsz,
         base_weights=parent.best_weights,
         resume_from=parent.best_weights,
+        parent_job_id=parent.id,
     )
     db.add(child)
     db.commit()
