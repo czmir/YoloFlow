@@ -17,8 +17,13 @@ class Settings(BaseSettings):
     workspaces_dir: Path = _DATA_ROOT / "workspaces"
     uploads_dir: Path = _DATA_ROOT / "uploads"
     max_upload_mb: int = 512
+    max_zip_files: int = 20000
+    max_zip_uncompressed_mb: int = 2048
     training_queue_poll_seconds: float = 1.0
     default_model: str = "yolov8n.pt"
+    embedded_worker: bool = True
+    worker_name: str = "api"
+    job_lease_seconds: float = 90.0
     cors_origins: list[str] = ["http://localhost:5173", "http://127.0.0.1:5173", "http://localhost:3000"]
 
     def ensure_dirs(self) -> None:

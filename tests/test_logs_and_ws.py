@@ -34,14 +34,26 @@ def test_resources_websocket_payload():
         assert "cpu_percent" in data
         assert "queued_jobs" in data
         assert "paused_jobs" in data
+        assert data.get("heartbeat") is True
         ws.send_text("ping")
         saw_pong = False
-        for _ in range(6):
+        for _ in range(8):
             msg = ws.receive_json()
             if msg.get("type") == "pong":
                 saw_pong = True
                 break
         assert saw_pong
+        ws.close()
+
+
+def test_resources_websocket_disconnect_cleans_up():
+    from app.ws.resources import active_connection_count
+
+    with client.websocket_connect("/ws/resources") as ws:
+        ws.receive_json()
+        ws.send_text("ping")
+        ws.close()
+    assert active_connection_count() == 0
 
 
 def test_health():

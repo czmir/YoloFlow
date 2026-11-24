@@ -9,6 +9,8 @@ services:
       - ./data:/app/data
     environment:
       - YOLOFLOW_DATABASE_URL=sqlite:////app/data/yoloflow.db
+      - YOLOFLOW_EMBEDDED_WORKER=false
+      - YOLOFLOW_WORKER_NAME=api
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000
 
   worker:
@@ -19,6 +21,10 @@ services:
       - ./data:/app/data
     depends_on:
       - api
+    environment:
+      - YOLOFLOW_DATABASE_URL=sqlite:////app/data/yoloflow.db
+      - YOLOFLOW_EMBEDDED_WORKER=false
+      - YOLOFLOW_WORKER_NAME=standalone
     command: python worker/main.py
 
   ort-inference:

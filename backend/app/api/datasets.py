@@ -29,6 +29,12 @@ from app.services.dataset_validator import (
     scan_yolo_folder,
     validate_yolo_dataset,
 )
+from app.services.security import (
+    UnsafePathError,
+    enforce_upload_limit,
+    safe_extract_zip,
+    sanitize_filename,
+)
 
 router = APIRouter(prefix="/datasets", tags=["datasets"])
 
@@ -135,17 +141,45 @@ async def upload_zip(
 ) -> DatasetCreateResponse:
     if not file.filename or not file.filename.lower().endswith(".zip"):
         raise HTTPException(status_code=400, detail="expected a .zip archive")
+    try:
+        zip_name = sanitize_filename(file.filename)
+        ds_key = sanitize_filename(name)
+    except UnsafePathError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    target = settings.uploads_dir / f"{name}_{file.filename}"
+    target = settings.uploads_dir / f"{ds_key}_{zip_name}"
+    written = 0
+    max_bytes = settings.max_upload_mb * 1024 * 1024
     with target.open("wb") as out:
-        shutil.copyfileobj(file.file, out)
+        while True:
+            chunk = await file.read(1024 * 1024)
+            if not chunk:
+                break
+            written += len(chunk)
+            try:
+                enforce_upload_limit(written)
+            except UnsafePathError as exc:
+                out.close()
+                target.unlink(missing_ok=True)
+                raise HTTPException(status_code=413, detail=str(exc)) from exc
+            out.write(chunk)
+    _ = max_bytes
 
-    extract_dir = settings.datasets_dir / name
+    extract_dir = settings.datasets_dir / ds_key
     if extract_dir.exists():
         shutil.rmtree(extract_dir)
     extract_dir.mkdir(parents=True, exist_ok=True)
-    with zipfile.ZipFile(target) as zf:
-        zf.extractall(extract_dir)
+    try:
+        with zipfile.ZipFile(target) as zf:
+            if zf.testzip() is not None:
+                raise HTTPException(status_code=400, detail="corrupt zip archive")
+            safe_extract_zip(zf, extract_dir)
+    except zipfile.BadZipFile as exc:
+        shutil.rmtree(extract_dir, ignore_errors=True)
+        raise HTTPException(status_code=400, detail="invalid zip archive") from exc
+    except UnsafePathError as exc:
+        shutil.rmtree(extract_dir, ignore_errors=True)
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     yaml_path = discover_yaml_in_tree(extract_dir)
     if not yaml_path and (extract_dir / "coco128").exists():
@@ -153,7 +187,7 @@ async def upload_zip(
     if not yaml_path:
         raise HTTPException(status_code=422, detail="no data.yaml found in archive")
 
-    ds_name, resolved, stats, validation = import_dataset_from_yaml(yaml_path, name=name)
+    ds_name, resolved, stats, validation = import_dataset_from_yaml(yaml_path, name=ds_key)
     if not validation.valid:
         raise HTTPException(status_code=422, detail=validation.model_dump())
 
@@ -239,7 +273,10 @@ def sample_annotations(
     if not ds:
         raise HTTPException(status_code=404, detail="dataset not found")
     try:
+        file_name = sanitize_filename(file_name)
         ann = load_annotations(Path(ds.yaml_path), file_name, split)
+    except UnsafePathError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     ann.dataset_id = dataset_id
@@ -256,7 +293,13 @@ def sample_image(
     ds = db.get(Dataset, dataset_id)
     if not ds:
         raise HTTPException(status_code=404, detail="dataset not found")
-    ann = load_annotations(Path(ds.yaml_path), file_name, split)
+    try:
+        file_name = sanitize_filename(file_name)
+        ann = load_annotations(Path(ds.yaml_path), file_name, split)
+    except UnsafePathError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
     root = Path(ds.root_dir or Path(ds.yaml_path).parent)
     with Path(ds.yaml_path).open(encoding="utf-8") as f:
         import yaml
@@ -264,9 +307,11 @@ def sample_image(
         cfg = yaml.safe_load(f) or {}
     rel = cfg.get("train" if split == "train" else "val", f"images/{split}")
     from app.services.dataset_validator import _resolve_path
+    from app.services.security import is_within
 
-    img_path = _resolve_path(Path(cfg.get("path", root)), str(rel)) / file_name
-    if not img_path.exists():
+    img_dir = _resolve_path(Path(cfg.get("path", root)), str(rel))
+    img_path = (img_dir / file_name).resolve()
+    if not img_path.exists() or not is_within(img_path, img_dir.resolve()):
         raise HTTPException(status_code=404, detail="image not found")
-    _ = ann  # path validated via load_annotations
+    _ = ann
     return FileResponse(img_path)

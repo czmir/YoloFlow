@@ -31,3 +31,5 @@ def test_claim_returns_resume_ready_job(tmp_path: Path):
         assert claimed is not None
         assert claimed.id == job.id
         assert claimed.resume_from == str(ckpt)
+        assert claimed.status == JobStatus.running.value
+        assert claimed.claimed_by is not None

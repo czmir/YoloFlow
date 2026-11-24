@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import json
-import sys
 import threading
 import time
 from datetime import datetime, timezone
@@ -13,9 +11,19 @@ from app.config import settings
 from app.database import SessionLocal
 from app.models import JobStatus, MetricPoint, TrainingJob
 from app.services.experiment_artifacts import collect_post_train_artifacts
+from app.services.job_state import (
+    JobCancelled,
+    JobPaused,
+    claim_job_by_id,
+    claim_pending_job,
+    is_control_exception,
+    touch_heartbeat,
+    worker_identity,
+)
 from app.services.model_registry import register_job_model
-from app.services.job_state import claim_pending_job
 from app.services.onnx_export import export_to_onnx
+from app.services.security import UnsafePathError, resolve_weight_path
+from app.services.stdio import redirect_stdio_to
 
 
 class JobControlCallback:
@@ -29,13 +37,14 @@ class JobControlCallback:
                 return
             if job.cancel_requested:
                 trainer.stop = True
-                raise RuntimeError("job cancelled by user")
+                raise JobCancelled(f"job {self.job_id} cancelled by user")
             if job.pause_requested:
                 job.status = JobStatus.paused.value
                 job.pause_requested = False
+                job.claimed_by = None
                 db.commit()
                 trainer.stop = True
-                raise RuntimeError("job paused by user")
+                raise JobPaused(f"job {self.job_id} paused by user")
 
 
 class MetricsCallback:
@@ -83,21 +92,38 @@ def _safe_float(value) -> float | None:  # type: ignore[no-untyped-def]
         return None
 
 
+def _heartbeat_loop(job_id: int, owner: str, stop: threading.Event) -> None:
+    while not stop.wait(15.0):
+        try:
+            with SessionLocal() as db:
+                touch_heartbeat(db, job_id, owner=owner)
+        except Exception:  # noqa: BLE001
+            return
+
+
 def run_training_job(job_id: int) -> None:
+    owner = worker_identity()
     with SessionLocal() as db:
         job = db.get(TrainingJob, job_id)
         if job is None:
             return
-        job.status = JobStatus.running.value
-        job.started_at = datetime.now(timezone.utc)
+        if job.status == JobStatus.pending.value:
+            job = claim_job_by_id(db, job_id, owner=owner)
+            if job is None:
+                return
+        elif job.status == JobStatus.running.value:
+            if job.claimed_by and job.claimed_by != owner:
+                return
+        else:
+            return
         workspace = settings.workspaces_dir / f"job_{job_id}"
         workspace.mkdir(parents=True, exist_ok=True)
         job.workspace_dir = str(workspace)
         log_path = workspace / "train.log"
         job.log_path = str(log_path)
+        job.claimed_by = owner
         db.commit()
-        dataset = job.dataset
-        yaml_path = dataset.yaml_path
+        yaml_path = job.dataset.yaml_path
         device = job.device
         resume_path = job.resume_from
         epochs = job.epochs
@@ -105,110 +131,122 @@ def run_training_job(job_id: int) -> None:
         imgsz = job.imgsz
         weights = job.base_weights
 
+    try:
+        weight_spec = resolve_weight_path(resume_path or weights)
+    except (UnsafePathError, FileNotFoundError) as exc:
+        with SessionLocal() as db:
+            job = db.get(TrainingJob, job_id)
+            if job:
+                job.status = JobStatus.failed.value
+                job.finished_at = datetime.now(timezone.utc)
+                job.error_message = f"refused weight path: {exc}"
+                job.claimed_by = None
+                db.commit()
+        return
+
+    hb_stop = threading.Event()
+    hb_thread = threading.Thread(target=_heartbeat_loop, args=(job_id, owner, hb_stop), daemon=True)
+    hb_thread.start()
+
     log_file = open(log_path, "a", encoding="utf-8")  # noqa: SIM115
-
-    class _Tee:
-        def write(self, data: str) -> None:
-            sys.__stdout__.write(data)
-            log_file.write(data)
-            log_file.flush()
-
-        def flush(self) -> None:
-            sys.__stdout__.flush()
-            log_file.flush()
-
-    old_stdout = sys.stdout
-    sys.stdout = _Tee()  # type: ignore[assignment]
-
     metrics_cb = MetricsCallback(job_id)
     control_cb = JobControlCallback(job_id)
     try:
-        model = YOLO(resume_path or weights)
-        model.add_callback("on_fit_epoch_end", metrics_cb.on_fit_epoch_end)
-        model.add_callback("on_train_epoch_end", control_cb.on_train_epoch_end)
+        with redirect_stdio_to(log_file, __import__("sys").__stdout__):
+            model = YOLO(str(weight_spec))
+            model.add_callback("on_fit_epoch_end", metrics_cb.on_fit_epoch_end)
+            model.add_callback("on_train_epoch_end", control_cb.on_train_epoch_end)
 
-        train_kwargs = {
-            "data": yaml_path,
-            "epochs": epochs,
-            "imgsz": imgsz,
-            "batch": batch,
-            "device": device,
-            "project": str(workspace),
-            "name": "train",
-            "exist_ok": True,
-            "verbose": True,
-            "workers": 0 if device == "cpu" else 2,
-        }
-        if resume_path:
-            train_kwargs["resume"] = True
+            train_kwargs = {
+                "data": yaml_path,
+                "epochs": epochs,
+                "imgsz": imgsz,
+                "batch": batch,
+                "device": device,
+                "project": str(workspace),
+                "name": "train",
+                "exist_ok": True,
+                "verbose": True,
+                "workers": 0 if device == "cpu" else 2,
+            }
+            if resume_path:
+                train_kwargs["resume"] = True
 
-        t0 = time.perf_counter()
-        results = model.train(**train_kwargs)
-        elapsed = time.perf_counter() - t0
+            t0 = time.perf_counter()
+            results = model.train(**train_kwargs)
+            elapsed = time.perf_counter() - t0
 
-        best = workspace / "train" / "weights" / "best.pt"
-        if not best.exists():
-            best = workspace / "train" / "weights" / "last.pt"
+            best = workspace / "train" / "weights" / "best.pt"
+            if not best.exists():
+                best = workspace / "train" / "weights" / "last.pt"
 
-        onnx_path = export_to_onnx(best, workspace / "model.onnx")
+            onnx_path = export_to_onnx(best, workspace / "model.onnx")
 
-        metrics_summary = {}
-        if hasattr(results, "results_dict"):
-            metrics_summary = dict(results.results_dict)
+            metrics_summary = {}
+            if hasattr(results, "results_dict"):
+                metrics_summary = dict(results.results_dict)
 
-        with SessionLocal() as db:
-            job = db.get(TrainingJob, job_id)
-            if job:
-                job.status = JobStatus.succeeded.value
-                job.finished_at = datetime.now(timezone.utc)
-                job.best_weights = str(best) if best.exists() else None
-                job.onnx_path = str(onnx_path) if onnx_path else None
-                artifacts = collect_post_train_artifacts(job)
-                job.metrics_json = {
-                    **metrics_summary,
-                    **artifacts,
-                    "elapsed_seconds": elapsed,
-                    "resumed_from": job.resume_from,
-                }
-                register_job_model(db, job)
-                db.commit()
+            with SessionLocal() as db:
+                job = db.get(TrainingJob, job_id)
+                if job:
+                    job.status = JobStatus.succeeded.value
+                    job.finished_at = datetime.now(timezone.utc)
+                    job.best_weights = str(best) if best.exists() else None
+                    job.onnx_path = str(onnx_path) if onnx_path else None
+                    job.claimed_by = None
+                    artifacts = collect_post_train_artifacts(job)
+                    job.metrics_json = {
+                        **metrics_summary,
+                        **artifacts,
+                        "elapsed_seconds": elapsed,
+                        "resumed_from": job.resume_from,
+                    }
+                    register_job_model(db, job)
+                    db.commit()
     except Exception as exc:  # noqa: BLE001
-        msg = str(exc)
+        cancelled = is_control_exception(exc, JobCancelled)
+        paused = is_control_exception(exc, JobPaused)
         with SessionLocal() as db:
             job = db.get(TrainingJob, job_id)
             if job:
-                if "cancelled" in msg:
+                if cancelled:
                     job.status = JobStatus.cancelled.value
-                elif "paused" in msg:
+                    job.finished_at = datetime.now(timezone.utc)
+                elif paused:
                     job.status = JobStatus.paused.value
+                    last = Path(job.workspace_dir or "") / "train" / "weights" / "last.pt"
+                    if last.exists():
+                        job.resume_from = str(last)
+                    job.finished_at = None
                 else:
                     job.status = JobStatus.failed.value
-                job.finished_at = datetime.now(timezone.utc)
-                job.error_message = msg
+                    job.finished_at = datetime.now(timezone.utc)
+                job.error_message = f"{type(exc).__name__}: {exc}"
+                job.claimed_by = None
                 db.commit()
-        if "cancelled" in msg or "paused" in msg:
+        if cancelled or paused:
             return
         raise
     finally:
-        sys.stdout = old_stdout
+        hb_stop.set()
         log_file.close()
 
 
 class TrainingQueue:
-    """Single-worker in-process queue; worker container uses the same code path."""
+    """Single in-process worker. Standalone `worker/main.py` uses the same claim CAS."""
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self._active_id: int | None = None
         self._thread: threading.Thread | None = None
+        self._starting = False
+        self._pending_kick = False
+        self.enabled = True
 
-    def enqueue(self, job_id: int) -> None:
-        with self._lock:
-            if self._active_id is not None:
-                return
-            self._active_id = job_id
-            self._thread = threading.Thread(target=self._run, args=(job_id,), daemon=True)
-            self._thread.start()
+    def enqueue(self, job_id: int | None = None) -> None:
+        """Compatibility: ignore explicit ids and claim via CAS."""
+        _ = job_id
+        self.kick()
 
     def _run(self, job_id: int) -> None:
         try:
@@ -217,25 +255,41 @@ class TrainingQueue:
             with self._lock:
                 self._active_id = None
                 self._thread = None
-            self._dispatch_next()
+            self.kick()
 
-    def _dispatch_next(self) -> None:
-        with SessionLocal() as db:
-            pending = claim_pending_job(db)
-            if pending:
-                self.enqueue(pending.id)
+    def kick(self) -> None:
+        if not self.enabled:
+            return
+        with self._lock:
+            if self._active_id is not None or self._starting:
+                self._pending_kick = True
+                return
+            self._starting = True
+        job_id: int | None = None
+        try:
+            with SessionLocal() as db:
+                pending = claim_pending_job(db)
+                if pending:
+                    job_id = pending.id
+            if job_id is None:
+                return
+            with self._lock:
+                self._active_id = job_id
+                self._thread = threading.Thread(target=self._run, args=(job_id,), daemon=True)
+                self._thread.start()
+        finally:
+            start_again = False
+            with self._lock:
+                self._starting = False
+                start_again = self._pending_kick and self._active_id is None
+                self._pending_kick = False
+            if start_again:
+                self.kick()
 
     @property
     def active_job_id(self) -> int | None:
         with self._lock:
             return self._active_id
-
-    def kick(self) -> None:
-        """Try to start the next pending job if idle."""
-        with self._lock:
-            if self._active_id is not None:
-                return
-        self._dispatch_next()
 
 
 training_queue = TrainingQueue()

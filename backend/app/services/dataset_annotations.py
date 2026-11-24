@@ -7,6 +7,7 @@ from PIL import Image
 
 from app.schemas import AnnotationBox, SampleAnnotation
 from app.services.dataset_validator import _images_in_split, _label_path_for_image, _parse_class_names, _resolve_path
+from app.services.security import is_within, sanitize_filename
 
 
 def list_sample_images(yaml_path: Path, split: str = "train", limit: int = 24) -> list[dict]:
@@ -24,9 +25,10 @@ def load_annotations(yaml_path: Path, file_name: str, split: str) -> SampleAnnot
     root = Path(cfg.get("path", yaml_path.parent)).resolve()
     class_names = _parse_class_names(cfg)
     rel = cfg.get("train" if split == "train" else "val", f"images/{split}")
-    img_dir = _resolve_path(root, str(rel))
-    img_path = img_dir / file_name
-    if not img_path.exists():
+    img_dir = _resolve_path(root, str(rel)).resolve()
+    file_name = sanitize_filename(file_name)
+    img_path = (img_dir / file_name).resolve()
+    if not img_path.exists() or not is_within(img_path, img_dir):
         raise FileNotFoundError(file_name)
 
     with Image.open(img_path) as im:

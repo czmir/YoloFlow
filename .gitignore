@@ -20,6 +20,7 @@ data/workspaces/
 data/uploads/
 data/runs/
 data/acceptance-report.json
+data/acceptance-release.json
 data/acceptance-stdout.txt
 data/datasets/
 data/workspaces/

@@ -13,9 +13,11 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "backend"))
 os.chdir(ROOT)
+os.environ.setdefault("YOLO_AUTOINSTALL", "false")
 
 from app.database import SessionLocal, init_db  # noqa: E402
 from app.models import Dataset, TrainingJob  # noqa: E402
+from app.services.acceptance_report import overall_exit_code  # noqa: E402
 from app.services.dataset_validator import import_dataset_from_yaml  # noqa: E402
 from app.services.inference_engine import compare_pytorch_onnx  # noqa: E402
 from app.services.ultralytics_trainer import run_training_job  # noqa: E402
@@ -47,8 +49,11 @@ def main() -> int:
         import ultralytics
 
         template = Path(ultralytics.__file__).parent / "cfg/datasets/coco128.yaml"
-        text = template.read_text(encoding="utf-8").replace("path: coco128", f"path: {assets}")
-        yaml_path.write_text(text, encoding="utf-8")
+        yaml_path.write_text(template.read_text(encoding="utf-8"), encoding="utf-8")
+    text = yaml_path.read_text(encoding="utf-8")
+    text = text.replace("path: ../datasets/coco128", f"path: {assets}")
+    text = text.replace("path: coco128", f"path: {assets}")
+    yaml_path.write_text(text, encoding="utf-8")
 
     name, resolved, stats, validation = import_dataset_from_yaml(yaml_path, name="coco128")
     if not validation.valid:
@@ -102,17 +107,6 @@ def main() -> int:
         weights = Path(job.best_weights or "")
         onnx = Path(job.onnx_path or "")
         sample = next((assets / "images" / "train2017").glob("*.jpg"), None)
-        if sample and weights.exists() and onnx.exists():
-            t1 = time.perf_counter()
-            pt, ox, mean_iou, count_diff = compare_pytorch_onnx(weights, onnx, sample, device="cpu")
-            report["timings"]["compare_seconds"] = round(time.perf_counter() - t1, 2)
-            report["onnx_compare"] = {
-                "pytorch_detections": len(pt.detections),
-                "onnx_detections": len(ox.detections),
-                "mean_iou": mean_iou,
-                "count_diff": count_diff,
-                "sample_image": str(sample),
-            }
         report["job"] = {
             "id": job.id,
             "status": job.status,
@@ -120,11 +114,33 @@ def main() -> int:
             "weights": job.best_weights,
             "onnx": job.onnx_path,
         }
+        if not sample:
+            report["onnx_compare"] = {"skipped": True, "reason": "no sample image"}
+        elif not weights.exists():
+            report["onnx_compare"] = {"skipped": True, "reason": "pytorch weights missing"}
+        elif not onnx.exists():
+            report["onnx_compare"] = {"skipped": True, "reason": "onnx export missing"}
+        else:
+            t1 = time.perf_counter()
+            pt, ox, mean_iou, count_diff = compare_pytorch_onnx(weights, onnx, sample, device="cpu")
+            report["timings"]["compare_seconds"] = round(time.perf_counter() - t1, 2)
+            report["onnx_compare"] = {
+                "skipped": False,
+                "pytorch_detections": len(pt.detections),
+                "onnx_detections": len(ox.detections),
+                "mean_iou": mean_iou,
+                "count_diff": count_diff,
+                "sample_image": str(sample),
+            }
 
     out = ROOT / "data" / "acceptance-report.json"
+    out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(report, indent=2), encoding="utf-8")
     print(json.dumps(report, indent=2))
-    return 0
+    code = overall_exit_code(report)
+    if code == 3:
+        print("ONNX compare skipped after a successful train — failing overall.", file=sys.stderr)
+    return code
 
 
 if __name__ == "__main__":

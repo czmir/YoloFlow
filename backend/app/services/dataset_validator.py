@@ -150,7 +150,21 @@ def validate_yolo_dataset(yaml_path: Path) -> tuple[DatasetStats, DatasetValidat
     with yaml_path.open(encoding="utf-8") as f:
         cfg = yaml.safe_load(f) or {}
 
-    root = Path(cfg.get("path", yaml_path.parent)).resolve()
+    raw_root = cfg.get("path", yaml_path.parent)
+    root = Path(raw_root)
+    if not root.is_absolute():
+        nested = (yaml_path.parent / root).resolve()
+        cwd_resolved = root.resolve()
+        if nested.exists():
+            root = nested
+        elif cwd_resolved.exists():
+            root = cwd_resolved
+        else:
+            root = yaml_path.parent.resolve()
+    else:
+        root = root.resolve()
+        if not root.exists():
+            root = yaml_path.parent.resolve()
     class_names = _parse_class_names(cfg)
     train_rel = str(cfg.get("train", "images/train"))
     val_rel = str(cfg.get("val", "images/val"))

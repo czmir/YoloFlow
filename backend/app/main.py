@@ -1,13 +1,18 @@
 from __future__ import annotations
 
+import os
 from contextlib import asynccontextmanager
+
+os.environ.setdefault("YOLO_AUTOINSTALL", "false")
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import datasets, deploy, experiments, inference, logs, models, training
 from app.config import settings
-from app.database import init_db
+from app.database import SessionLocal, init_db
+from app.services.job_state import recover_orphan_jobs
+from app.services.ultralytics_trainer import training_queue
 from app.ws import resources
 
 
@@ -15,7 +20,13 @@ from app.ws import resources
 async def lifespan(_: FastAPI):
     settings.ensure_dirs()
     init_db()
+    training_queue.enabled = settings.embedded_worker
+    with SessionLocal() as db:
+        recover_orphan_jobs(db)
+    if settings.embedded_worker:
+        training_queue.kick()
     yield
+    training_queue.enabled = False
 
 
 app = FastAPI(title=settings.app_name, lifespan=lifespan)

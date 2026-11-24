@@ -61,6 +61,8 @@ def _migrate_sqlite() -> None:
         "ALTER TABLE training_jobs ADD COLUMN cancel_requested BOOLEAN DEFAULT 0",
         "ALTER TABLE training_jobs ADD COLUMN pause_requested BOOLEAN DEFAULT 0",
         "ALTER TABLE training_jobs ADD COLUMN parent_job_id INTEGER",
+        "ALTER TABLE training_jobs ADD COLUMN claimed_by VARCHAR(128)",
+        "ALTER TABLE training_jobs ADD COLUMN heartbeat_at DATETIME",
     ]
     # model_versions / onnx_export_records created via create_all on fresh DB
     with engine.begin() as conn:

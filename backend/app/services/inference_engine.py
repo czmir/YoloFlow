@@ -12,7 +12,7 @@ import onnxruntime as ort
 from ultralytics import YOLO
 
 from app.schemas import BatchInferenceItem, BatchInferenceResponse, DetectionBox, InferenceResponse
-from app.services.tiling import generate_tiles, nms_boxes
+from app.services.tiling import class_aware_nms, generate_tiles, remap_tile_box
 
 
 def _to_detections(result, names: dict[int, str]) -> list[DetectionBox]:
@@ -37,12 +37,30 @@ def _to_detections(result, names: dict[int, str]) -> list[DetectionBox]:
     return boxes
 
 
-def infer_pytorch(weights: str | Path, image_path: Path, conf: float = 0.25, device: str = "cpu") -> InferenceResponse:
+def _onnx_imgsz(onnx_path: str | Path) -> int:
+    session = ort.InferenceSession(str(onnx_path), providers=["CPUExecutionProvider"])
+    shape = session.get_inputs()[0].shape
+    spatial = [int(x) for x in shape[-2:] if isinstance(x, (int, np.integer))]
+    return int(spatial[-1]) if spatial else 640
+
+
+def infer_pytorch(
+    weights: str | Path,
+    image_path: Path,
+    conf: float = 0.25,
+    device: str = "cpu",
+    imgsz: int | None = None,
+) -> InferenceResponse:
+    img = cv2.imread(str(image_path))
+    if img is None:
+        raise ValueError(f"cannot read image: {image_path}")
     model = YOLO(str(weights))
     t0 = time.perf_counter()
-    results = model.predict(source=str(image_path), conf=conf, device=device, verbose=False)
+    kwargs = {"source": str(image_path), "conf": conf, "device": device, "verbose": False}
+    if imgsz:
+        kwargs["imgsz"] = imgsz
+    results = model.predict(**kwargs)
     latency = (time.perf_counter() - t0) * 1000
-    img = cv2.imread(str(image_path))
     h, w = img.shape[:2]
     names = model.names
     dets = _to_detections(results[0], names)
@@ -55,13 +73,16 @@ def infer_pytorch(weights: str | Path, image_path: Path, conf: float = 0.25, dev
     )
 
 
-def infer_onnx(onnx_path: str | Path, image_path: Path, conf: float = 0.25) -> InferenceResponse:
-    session = ort.InferenceSession(str(onnx_path), providers=["CPUExecutionProvider"])
-    model = YOLO(str(onnx_path))
-    t0 = time.perf_counter()
-    results = model.predict(source=str(image_path), conf=conf, verbose=False)
-    latency = (time.perf_counter() - t0) * 1000
+def infer_onnx(onnx_path: str | Path, image_path: Path, conf: float = 0.25, imgsz: int | None = None) -> InferenceResponse:
     img = cv2.imread(str(image_path))
+    if img is None:
+        raise ValueError(f"cannot read image: {image_path}")
+    session = ort.InferenceSession(str(onnx_path), providers=["CPUExecutionProvider"])
+    size = imgsz or _onnx_imgsz(onnx_path)
+    model = YOLO(str(onnx_path), task="detect")
+    t0 = time.perf_counter()
+    results = model.predict(source=str(image_path), conf=conf, imgsz=size, verbose=False)
+    latency = (time.perf_counter() - t0) * 1000
     h, w = img.shape[:2]
     names = model.names
     dets = _to_detections(results[0], names)
@@ -75,25 +96,6 @@ def infer_onnx(onnx_path: str | Path, image_path: Path, conf: float = 0.25) -> I
     )
 
 
-def _global_nms(
-    all_boxes: list[list[float]],
-    all_scores: list[float],
-    all_classes: list[int],
-    iou_threshold: float = 0.5,
-) -> list[int]:
-    """Class-aware global NMS after tiling."""
-    keep: list[int] = []
-    by_class: dict[int, list[int]] = {}
-    for i, cls in enumerate(all_classes):
-        by_class.setdefault(cls, []).append(i)
-    for _, indices in by_class.items():
-        boxes = np.array([all_boxes[i] for i in indices])
-        scores = np.array([all_scores[i] for i in indices])
-        local_keep = nms_boxes(boxes, scores, iou_threshold=iou_threshold)
-        keep.extend(indices[i] for i in local_keep)
-    return keep
-
-
 def infer_tiled(
     weights: str | Path,
     image_path: Path,
@@ -105,11 +107,11 @@ def infer_tiled(
     backend: str = "pytorch",
     nms_iou: float = 0.5,
 ) -> InferenceResponse:
-    model = YOLO(str(weights))
     img = cv2.imread(str(image_path))
     if img is None:
         raise ValueError(f"cannot read image: {image_path}")
     h, w = img.shape[:2]
+    model = YOLO(str(weights))
     tiles = generate_tiles(w, h, tile_size=tile_size, overlap=overlap)
 
     all_boxes: list[list[float]] = []
@@ -128,7 +130,8 @@ def infer_tiled(
             if results[0].boxes is not None:
                 for box in results[0].boxes:
                     bx = box.xyxy[0].tolist()
-                    all_boxes.append([bx[0] + x1, bx[1] + y1, bx[2] + x1, bx[3] + y1])
+                    gx1, gy1, gx2, gy2 = remap_tile_box((bx[0], bx[1], bx[2], bx[3]), x1, y1)
+                    all_boxes.append([gx1, gy1, gx2, gy2])
                     all_scores.append(float(box.conf[0]))
                     all_classes.append(int(box.cls[0]))
         finally:
@@ -139,7 +142,7 @@ def infer_tiled(
     names = model.names
     dets: list[DetectionBox] = []
     if all_boxes:
-        keep = _global_nms(all_boxes, all_scores, all_classes, iou_threshold=nms_iou)
+        keep = class_aware_nms(all_boxes, all_scores, all_classes, iou_threshold=nms_iou)
         for idx in keep:
             cls_id = all_classes[idx]
             dets.append(
@@ -247,8 +250,9 @@ def compare_pytorch_onnx(
     conf: float = 0.25,
     device: str = "cpu",
 ) -> tuple[InferenceResponse, InferenceResponse, float, int]:
-    pt = infer_pytorch(weights, image_path, conf=conf, device=device)
-    ox = infer_onnx(onnx_path, image_path, conf=conf)
+    size = _onnx_imgsz(onnx_path)
+    pt = infer_pytorch(weights, image_path, conf=conf, device=device, imgsz=size)
+    ox = infer_onnx(onnx_path, image_path, conf=conf, imgsz=size)
     if not pt.detections:
         return pt, ox, 0.0, abs(len(pt.detections) - len(ox.detections))
     onnx_arr = np.array([[d.x1, d.y1, d.x2, d.y2] for d in ox.detections]) if ox.detections else np.zeros((0, 4))

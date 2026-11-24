@@ -1,4 +1,8 @@
+import os
 import uuid
+
+os.environ.setdefault("YOLOFLOW_EMBEDDED_WORKER", "false")
+os.environ.setdefault("YOLOFLOW_WORKER_NAME", "pytest")
 
 import pytest
 from sqlalchemy.orm import Session

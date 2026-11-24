@@ -12,6 +12,7 @@ from app.database import get_db
 from app.models import InferenceRun, ModelVersion, TrainingJob
 from app.schemas import BatchInferenceResponse, InferenceResponse, OnnxCompareResponse
 from app.services.hardware import detect_device
+from app.services.security import UnsafePathError, resolve_weight_path
 from app.services.inference_engine import (
     compare_pytorch_onnx,
     export_detections_payload,
@@ -36,9 +37,12 @@ def _resolve_weights(
             raise HTTPException(status_code=404, detail="model version not found")
         return Path(mv.pytorch_path), Path(mv.onnx_path) if mv.onnx_path else None
     if weights_path:
-        wp = Path(weights_path)
-        if not wp.exists():
-            raise HTTPException(status_code=404, detail="weights not found")
+        try:
+            wp = resolve_weight_path(weights_path, must_exist=True)
+        except UnsafePathError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except FileNotFoundError:
+            raise HTTPException(status_code=404, detail="weights not found") from None
         return wp, None
     if job_id is None:
         default = Path("yolov8n.pt")

@@ -20,7 +20,9 @@ from app.schemas import (
 )
 from app.services.hardware import detect_device
 from app.services.job_state import apply_cancel, apply_pause, apply_unpause, can_resume_new_job
+from app.services.security import UnsafePathError, is_within, resolve_weight_path
 from app.services.training_queue import get_queue
+from app.config import settings
 
 router = APIRouter(prefix="/training", tags=["training"])
 
@@ -101,9 +103,15 @@ def verify_checkpoint(job_id: int, path: str | None = None, db: Session = Depend
     job = db.get(TrainingJob, job_id)
     if not job:
         raise HTTPException(status_code=404, detail="job not found")
-    ckpt = Path(path) if path else Path(job.best_weights or "")
-    if not ckpt.exists():
-        return CheckpointVerifyResult(path=str(ckpt), loadable=False, message="checkpoint file not found")
+    raw = path or job.best_weights or ""
+    try:
+        ckpt = resolve_weight_path(raw, must_exist=True)
+    except (UnsafePathError, FileNotFoundError) as exc:
+        return CheckpointVerifyResult(path=str(raw), loadable=False, message=str(exc))
+    if job.workspace_dir:
+        ws = Path(job.workspace_dir).resolve()
+        if ckpt.is_absolute() and ckpt.suffix == ".pt" and not is_within(ckpt, ws) and not is_within(ckpt, settings.data_root.resolve()):
+            return CheckpointVerifyResult(path=str(ckpt), loadable=False, message="checkpoint path is outside the workspace")
     try:
         YOLO(str(ckpt))
         return CheckpointVerifyResult(path=str(ckpt), loadable=True, message="ok")
@@ -120,6 +128,12 @@ def create_job(payload: TrainingJobCreate, db: Session = Depends(get_db)) -> Tra
     if not validation.get("valid", True):
         raise HTTPException(status_code=422, detail="dataset failed validation")
 
+    try:
+        base_weights = str(resolve_weight_path(payload.base_weights))
+        resume_from = str(resolve_weight_path(payload.resume_from)) if payload.resume_from else None
+    except UnsafePathError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
     hw = detect_device()
     job = TrainingJob(
         name=payload.name,
@@ -129,16 +143,14 @@ def create_job(payload: TrainingJobCreate, db: Session = Depends(get_db)) -> Tra
         epochs=payload.epochs,
         batch_size=payload.batch_size,
         imgsz=payload.imgsz,
-        base_weights=payload.base_weights,
-        resume_from=payload.resume_from,
+        base_weights=base_weights,
+        resume_from=resume_from,
     )
     db.add(job)
     db.commit()
     db.refresh(job)
 
-    queue = get_queue()
-    if queue.active_job_id is None:
-        queue.enqueue(job.id)
+    get_queue().kick()
     return job
 
 
@@ -206,8 +218,5 @@ def resume_job(job_id: int, db: Session = Depends(get_db)) -> TrainingJob:
     db.add(child)
     db.commit()
     db.refresh(child)
-    if get_queue().active_job_id is None:
-        get_queue().enqueue(child.id)
-    else:
-        get_queue().kick()
+    get_queue().kick()
     return child
