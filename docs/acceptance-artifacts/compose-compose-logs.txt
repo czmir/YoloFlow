@@ -1,0 +1,25 @@
+frontend-1  | 
+worker-1    | Creating new Ultralytics Settings v0.0.6 file ✅ 
+worker-1    | View Ultralytics Settings with 'yolo settings' or at '/root/.config/Ultralytics/settings.json'
+worker-1    | Update Settings with 'yolo settings key=value', i.e. 'yolo settings runs_dir=path/to/dir'. For help see https://docs.ultralytics.com/quickstart/#ultralytics-settings.
+frontend-1  | > yoloflow-frontend@0.2.0 dev
+api-1       | Creating new Ultralytics Settings v0.0.6 file ✅ 
+frontend-1  | > vite --host 0.0.0.0
+api-1       | View Ultralytics Settings with 'yolo settings' or at '/root/.config/Ultralytics/settings.json'
+frontend-1  | 
+api-1       | Update Settings with 'yolo settings key=value', i.e. 'yolo settings runs_dir=path/to/dir'. For help see https://docs.ultralytics.com/quickstart/#ultralytics-settings.
+frontend-1  | Re-optimizing dependencies because vite config has changed
+api-1       | INFO:     Started server process [1]
+frontend-1  | 
+api-1       | INFO:     Waiting for application startup.
+frontend-1  |   VITE v5.4.21  ready in 148 ms
+api-1       | INFO:     Application startup complete.
+frontend-1  | 
+api-1       | INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+frontend-1  |   ➜  Local:   http://localhost:5173/
+api-1       | INFO:     172.18.0.1:41126 - "GET /health HTTP/1.1" 200 OK
+frontend-1  |   ➜  Network: http://172.18.0.3:5173/
+api-1       | INFO:     172.18.0.1:41132 - "GET /health HTTP/1.1" 200 OK
+api-1       | INFO:     172.18.0.1:41148 - "GET /api/v1/datasets HTTP/1.1" 200 OK
+api-1       | INFO:     172.18.0.1:41154 - "GET /api/v1/training/jobs HTTP/1.1" 200 OK
+api-1       | INFO:     172.18.0.1:41164 - "GET /api/v1/models HTTP/1.1" 200 OK

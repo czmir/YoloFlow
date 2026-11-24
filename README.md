@@ -10,6 +10,8 @@ It is **not** a hosted SaaS and **not** a research training framework. The produ
 
 Independent of [LiteTrain](https://github.com/gaoxuyang914/litetrain) source; similar problem space.
 
+Owner-oriented architecture notes (Chinese): [docs/owner-tech-guide.zh-CN.md](docs/owner-tech-guide.zh-CN.md).
+
 > **License honesty:** YoloFlow’s own code is **MIT**. Training and most inference call **Ultralytics**, which is **AGPL-3.0**. MIT here does **not** relicense Ultralytics. See [Licenses](#licenses) and [NOTICE.md](NOTICE.md).
 
 ## Screenshots
@@ -131,28 +133,33 @@ docker compose --profile ort up ort-inference
 
 Compose sets `YOLOFLOW_EMBEDDED_WORKER=false` on the API so only the `worker` service claims jobs.
 
-## Real results (smoke, not a paper)
+## Real results (v0.2.0)
 
-Measured on a **Linux CPU-only** cloud VM (see `docs` / store report after a full run). **COCO128 + 1 epoch is plumbing**, not a generalization claim.
+Measured **2026-11-24 21:18 Asia/Shanghai** on a Linux CPU-only VM (4× Xeon, no CUDA), `torch==2.5.1+cpu`, `ultralytics==8.3.70`. Full tables: [docs/release-acceptance-v0.2.md](docs/release-acceptance-v0.2.md) and [docs/acceptance-artifacts/infer-compare.md](docs/acceptance-artifacts/infer-compare.md).
 
-Measured **2026-11-24 14:43 Asia/Shanghai** on this Linux CPU VM (4× Xeon, no CUDA), `torch==2.5.1+cpu`, `ultralytics==8.3.70`. Full tables: [docs/release-acceptance.md](docs/release-acceptance.md).
+**COCO128 + 1 epoch is still plumbing.** v0.2 primary eval uses official **COCO 2017 `train2017` vs `val2017`** (disjoint ids; 40 / 20 image subset) so the 80-class `yolov8n` head is not re-initialized. Secondary: official **VOC 2007 `train.txt` vs `val.txt`** (48 / 24).
 
 | Step | Result |
 | --- | --- |
-| Import + validate | COCO128, 128/128 images, 929 train labels, valid with missing-label warnings |
-| Train 1 epoch | **16.51 s** wall; mAP50 **0.505**, mAP50-95 **0.379**, P **0.624**, R **0.468** |
-| PT vs ONNX | image `000000000009.jpg`; PT 3 dets / 50.3 ms; ONNX 4 dets / 43.6 ms; mean IoU **0.993** |
-| Large image | 1920×1440 stitch; full-frame imgsz=320 → 0 boxes; tiled 48 tiles → 104 boxes / 739 ms |
-| Pause + resume | 2-epoch job paused at epoch boundary in **5.75 s**, resumed to `succeeded` in **18.79 s** |
-| Crash recovery | stale `running` lease re-queued |
-| Batch / video / export | 3 images; 4 video frames / 88 ms; JSON export 599 B |
-| ORT service | `POST /v1/detect` HTTP 200, 4 detections, imgsz 320 |
+| COCO 2017 mini train | 40 train / 20 val, 10 epochs, batch 4, imgsz 320, CPU, **25.27 s** wall |
+| Val metrics (Ultralytics) | mAP50 **0.587**, mAP50-95 **0.438**, P **0.821**, R **0.428** |
+| VOC 2007 mini (20-class head) | 48 / 24, 10 epochs, **26.74 s**; mAP50 **0.220**, mAP50-95 **0.180** |
+| Full vs tiled on COCO val | 20 images, conf 0.25: full **44.0 ms** P **0.857** R **0.558**; tiled **114.7 ms** P **0.454** R **0.575** |
+| Duplicate boxes | mean same-class IoU>0.5 pairs **9.8 pre-NMS → 0.0 post-NMS**; mean **6.75** boxes suppressed |
+| Mosaic (4 distinct val images, 1140×1152) | full 6 boxes / 50.9 ms P 0.667; tiled 18 boxes / 399.9 ms, 25 tiles, 4 dups suppressed |
+| Playwright E2E | upload coco8 zip, 1-epoch train **succeeded**, inspect experiments, full + tiled infer (3 boxes) |
+| Docker Compose (this Linux VM) | `docker compose up --build`: `GET /health` ok, `/api/v1/datasets` 200, frontend **HTTP 200** |
+| Windows `setup.ps1` | **NOT RUN** (this VM is Linux; no self-hosted Windows worker) |
 
 Reproduce:
 
 ```bash
-python scripts/acceptance_train.py      # 1-epoch smoke; fails if ONNX compare is skipped
-python scripts/acceptance_release.py    # train, pause/resume, tiled, ORT, export
+python scripts/prepare_public_split.py   # VOC 2007 official train/val subset
+python scripts/prepare_coco_subset.py    # COCO 2017 official train/val subset
+python scripts/acceptance_v02.py         # train + full vs tiled tables
+python scripts/acceptance_train.py       # 1-epoch COCO128 smoke; fails if ONNX compare is skipped
+bash scripts/acceptance_e2e.sh           # Playwright against live API+Vite
+bash scripts/acceptance_compose.sh       # docker compose health/API
 ```
 
 ## API samples
@@ -191,7 +198,7 @@ Resource WebSocket: `ws://127.0.0.1:8000/ws/resources` — snapshot ~1 Hz, send 
 - Crash recovery re-queues `running` jobs whose heartbeat is older than `YOLOFLOW_JOB_LEASE_SECONDS` (default 90s).
 - Default path is CPU and nano weights. This is not a distributed trainer.
 - Zip import rejects path traversal and enforces file-count / uncompressed-size caps; `.pt` load is restricted to builtin Ultralytics names or files under `data/`.
-- `COCO128` 1-epoch mAP is a smoke metric only.
+- `COCO128` 1-epoch mAP is a smoke metric only. Cite v0.2 COCO 2017 mini / VOC 2007 mini for independent-split numbers.
 
 ## Licenses
 

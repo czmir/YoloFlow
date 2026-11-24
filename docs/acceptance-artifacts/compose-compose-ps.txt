@@ -1,0 +1,4 @@
+NAME                  IMAGE               COMMAND                  SERVICE    CREATED         STATUS         PORTS
+yoloflow-api-1        yoloflow-api        "uvicorn app.main:ap…"   api        7 seconds ago   Up 6 seconds   0.0.0.0:8000->8000/tcp, [::]:8000->8000/tcp
+yoloflow-frontend-1   yoloflow-frontend   "docker-entrypoint.s…"   frontend   7 seconds ago   Up 6 seconds   0.0.0.0:5173->5173/tcp, [::]:5173->5173/tcp
+yoloflow-worker-1     yoloflow-worker     "python worker/main.…"   worker     7 seconds ago   Up 6 seconds   

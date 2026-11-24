@@ -137,12 +137,28 @@ export default function DatasetsPage() {
         </form>
         <form onSubmit={uploadZip}>
           <p>
-            <input placeholder="dataset name" value={zipName} onChange={(e) => setZipName(e.target.value)} />
-            <input type="file" accept=".zip" onChange={(e) => setZipFile(e.target.files?.[0] ?? null)} />
-            <button type="submit">Upload ZIP</button>
+            <input
+              data-testid="zip-name"
+              placeholder="dataset name"
+              value={zipName}
+              onChange={(e) => setZipName(e.target.value)}
+            />
+            <input
+              data-testid="zip-file"
+              type="file"
+              accept=".zip"
+              onChange={(e) => setZipFile(e.target.files?.[0] ?? null)}
+            />
+            <button type="submit" data-testid="zip-upload">
+              Upload ZIP
+            </button>
           </p>
         </form>
-        {msg && <p className="mono">{msg}</p>}
+        {msg && (
+          <p className="mono" data-testid="dataset-msg">
+            {msg}
+          </p>
+        )}
       </div>
 
       <div className="card">

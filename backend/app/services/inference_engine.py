@@ -12,6 +12,7 @@ import onnxruntime as ort
 from ultralytics import YOLO
 
 from app.schemas import BatchInferenceItem, BatchInferenceResponse, DetectionBox, InferenceResponse
+from app.services.infer_compare import duplicate_report
 from app.services.tiling import class_aware_nms, generate_tiles, remap_tile_box
 
 
@@ -96,28 +97,18 @@ def infer_onnx(onnx_path: str | Path, image_path: Path, conf: float = 0.25, imgs
     )
 
 
-def infer_tiled(
-    weights: str | Path,
+def _collect_tile_raw(
+    model: YOLO,
+    img: np.ndarray,
     image_path: Path,
+    tiles: list[tuple[int, int, int, int]],
     *,
-    conf: float = 0.25,
-    tile_size: int = 640,
-    overlap: float = 0.2,
-    device: str = "cpu",
-    backend: str = "pytorch",
-    nms_iou: float = 0.5,
-) -> InferenceResponse:
-    img = cv2.imread(str(image_path))
-    if img is None:
-        raise ValueError(f"cannot read image: {image_path}")
-    h, w = img.shape[:2]
-    model = YOLO(str(weights))
-    tiles = generate_tiles(w, h, tile_size=tile_size, overlap=overlap)
-
+    conf: float,
+    device: str,
+) -> tuple[list[list[float]], list[float], list[int], float]:
     all_boxes: list[list[float]] = []
     all_scores: list[float] = []
     all_classes: list[int] = []
-
     t0 = time.perf_counter()
     for x1, y1, x2, y2 in tiles:
         crop = img[y1:y2, x1:x2]
@@ -137,10 +128,57 @@ def infer_tiled(
         finally:
             if tmp.exists():
                 tmp.unlink()
-
     latency = (time.perf_counter() - t0) * 1000
+    return all_boxes, all_scores, all_classes, latency
+
+
+def infer_tiled(
+    weights: str | Path,
+    image_path: Path,
+    *,
+    conf: float = 0.25,
+    tile_size: int = 640,
+    overlap: float = 0.2,
+    device: str = "cpu",
+    backend: str = "pytorch",
+    nms_iou: float = 0.5,
+) -> InferenceResponse:
+    return infer_tiled_detailed(
+        weights,
+        image_path,
+        conf=conf,
+        tile_size=tile_size,
+        overlap=overlap,
+        device=device,
+        backend=backend,
+        nms_iou=nms_iou,
+    )[0]
+
+
+def infer_tiled_detailed(
+    weights: str | Path,
+    image_path: Path,
+    *,
+    conf: float = 0.25,
+    tile_size: int = 640,
+    overlap: float = 0.2,
+    device: str = "cpu",
+    backend: str = "pytorch",
+    nms_iou: float = 0.5,
+) -> tuple[InferenceResponse, dict]:
+    """Tiled infer plus pre/post-NMS duplicate stats for acceptance tables."""
+    img = cv2.imread(str(image_path))
+    if img is None:
+        raise ValueError(f"cannot read image: {image_path}")
+    h, w = img.shape[:2]
+    model = YOLO(str(weights))
+    tiles = generate_tiles(w, h, tile_size=tile_size, overlap=overlap)
+    all_boxes, all_scores, all_classes, latency = _collect_tile_raw(
+        model, img, image_path, tiles, conf=conf, device=device
+    )
     names = model.names
     dets: list[DetectionBox] = []
+    keep: list[int] = []
     if all_boxes:
         keep = class_aware_nms(all_boxes, all_scores, all_classes, iou_threshold=nms_iou)
         for idx in keep:
@@ -156,8 +194,10 @@ def infer_tiled(
                     y2=all_boxes[idx][3],
                 )
             )
-
-    return InferenceResponse(
+    post_boxes = [all_boxes[i] for i in keep]
+    post_classes = [all_classes[i] for i in keep]
+    dup = duplicate_report(all_boxes, all_classes, post_boxes, post_classes, iou_threshold=nms_iou)
+    response = InferenceResponse(
         backend=f"{backend}-tiled",
         latency_ms=latency,
         image_width=w,
@@ -166,6 +206,14 @@ def infer_tiled(
         tiled=True,
         tile_count=len(tiles),
     )
+    stats = {
+        "tile_count": len(tiles),
+        "tile_size": tile_size,
+        "overlap": overlap,
+        "nms_iou": nms_iou,
+        **dup.as_dict(),
+    }
+    return response, stats
 
 
 def infer_tiled_pytorch(

@@ -83,16 +83,33 @@ export default function TrainingPage() {
       <div className="card">
         <form onSubmit={submit}>
           <p>
-            <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="job name" />
-            <select value={form.dataset_id} onChange={(e) => setForm({ ...form, dataset_id: Number(e.target.value) })}>
+            <input
+              data-testid="job-name"
+              value={form.name}
+              onChange={(e) => setForm({ ...form, name: e.target.value })}
+              placeholder="job name"
+            />
+            <select
+              data-testid="job-dataset"
+              value={form.dataset_id}
+              onChange={(e) => setForm({ ...form, dataset_id: Number(e.target.value) })}
+            >
               {datasets.map((d) => (
                 <option key={d.id} value={d.id}>
                   {d.name}
                 </option>
               ))}
             </select>
-            <input type="number" value={form.epochs} onChange={(e) => setForm({ ...form, epochs: Number(e.target.value) })} style={{ width: 70 }} />
-            <button type="submit">Start job</button>
+            <input
+              data-testid="job-epochs"
+              type="number"
+              value={form.epochs}
+              onChange={(e) => setForm({ ...form, epochs: Number(e.target.value) })}
+              style={{ width: 70 }}
+            />
+            <button type="submit" data-testid="job-start">
+              Start job
+            </button>
           </p>
         </form>
       </div>
@@ -113,7 +130,7 @@ export default function TrainingPage() {
               <tr key={j.id}>
                 <td>{j.id}</td>
                 <td>{j.name}</td>
-                <td>{j.status}</td>
+                <td data-testid={`job-status-${j.id}`}>{j.status}</td>
                 <td>{j.device}</td>
                 <td>{typeof j.metrics_json?.elapsed_seconds === "number" ? j.metrics_json.elapsed_seconds.toFixed(1) : "-"}</td>
                 <td>
