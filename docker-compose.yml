@@ -48,3 +48,5 @@ services:
       - "5173:5173"
     depends_on:
       - api
+    environment:
+      - YOLOFLOW_API_PROXY=http://api:8000

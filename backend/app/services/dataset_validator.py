@@ -223,8 +223,29 @@ def validate_yolo_dataset(yaml_path: Path) -> tuple[DatasetStats, DatasetValidat
     return stats, validation
 
 
+def materialize_yaml_root(yaml_path: Path) -> None:
+    """Rewrite relative `path:` to the yaml directory so Ultralytics finds images.
+
+    Zip uploads typically ship `path: .`. YOLO.train resolves that against CWD
+    (often `backend/`), not the yaml file, which makes training fail after a
+    successful import.
+    """
+    yaml_path = yaml_path.resolve()
+    if not yaml_path.exists():
+        return
+    with yaml_path.open(encoding="utf-8") as f:
+        cfg = yaml.safe_load(f) or {}
+    raw = cfg.get("path", ".")
+    root = Path(str(raw))
+    if root.is_absolute() and root.exists():
+        return
+    cfg["path"] = str(yaml_path.parent)
+    yaml_path.write_text(yaml.safe_dump(cfg, sort_keys=False, allow_unicode=True), encoding="utf-8")
+
+
 def import_dataset_from_yaml(yaml_path: Path, name: str | None = None) -> tuple[str, Path, DatasetStats, DatasetValidation]:
     yaml_path = yaml_path.resolve()
+    materialize_yaml_root(yaml_path)
     stats, validation = validate_yolo_dataset(yaml_path)
     ds_name = name or yaml_path.parent.name
     return ds_name, yaml_path, stats, validation

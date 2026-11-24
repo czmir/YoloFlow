@@ -7,7 +7,7 @@
 
 这不是 SaaS，也不是论文级训练框架。产品是 Ultralytics 周围的工程闭环：校验、任务控制、注册、对比、薄 UI。
 
-独立实现，不包含 [LiteTrain](https://github.com/gaoxuyang914/litetrain) 代码。
+独立实现，不包含 [LiteTrain](https://github.com/gaoxuyang914/litetrain) 代码。作者向源码讲义：[docs/owner-tech-guide.zh-CN.md](docs/owner-tech-guide.zh-CN.md)。
 
 > **许可说明（请认真看）：** 本仓库代码是 **MIT**。训练和大部分推理依赖 **Ultralytics（AGPL-3.0）**。MIT **不能**把 Ultralytics 改成 MIT。详见下方「许可证」和 [NOTICE.md](NOTICE.md)。
 
@@ -73,17 +73,19 @@ docker compose --profile ort up ort-inference
 
 Compose 里 API 设置 `YOLOFLOW_EMBEDDED_WORKER=false`，只让 `worker` 抢任务。
 
-## 真实结果（冒烟，不是论文）
+## 真实结果（v0.2.0）
 
-**COCO128 训练 1 个 epoch 只证明链路能跑通，不能证明泛化。** 完整数字：[docs/release-acceptance.md](docs/release-acceptance.md)。
+**COCO128 训练 1 个 epoch 只证明链路能跑通，不能证明泛化。** v0.2 主评估是官方 COCO 2017 **train2017 / val2017** 子集（40 / 20，id 不重叠）。完整表：[docs/release-acceptance-v0.2.md](docs/release-acceptance-v0.2.md)。
 
-2026-11-24 14:43（Asia/Shanghai）Linux CPU 实测摘要：1 epoch **16.51 s**，mAP50 **0.505** / mAP50-95 **0.379**；固定图 PT vs ONNX mean IoU **0.993**；2 epoch 任务真实暂停 **5.75 s** 后恢复成功 **18.79 s**；独立 ORT `POST /v1/detect` HTTP 200。
+2026-11-24 21:18（Asia/Shanghai）Linux CPU：COCO mini 10 epoch **25.27 s**，mAP50 **0.587** / mAP50-95 **0.438**；VOC 2007 官方划分子集 mAP50 **0.220**；val 上全图 vs 切片：全图 44 ms P 0.857，切片 115 ms P 0.454，NMS 前同类重叠框均 9.8 对、NMS 后 0。Playwright 真实上传 zip 并完成 1 epoch 训练。Compose `GET /health` 成功。Windows 脚本 **未跑**。
 
 复现：
 
 ```bash
+python scripts/acceptance_v02.py
 python scripts/acceptance_train.py
-python scripts/acceptance_release.py
+bash scripts/acceptance_e2e.sh
+bash scripts/acceptance_compose.sh
 ```
 
 训练成功但跳过 ONNX 对比时，`acceptance_train.py` **不会**返回成功码。
@@ -108,7 +110,7 @@ curl -s -X POST http://127.0.0.1:8001/v1/detect -F "file=@image.jpg"
 - 暂停/取消在 **epoch 结束** 生效，不是 batch 中间
 - 崩溃恢复：心跳超过 `YOLOFLOW_JOB_LEASE_SECONDS`（默认 90s）的 `running` 任务会重新入队
 - zip 防路径穿越；权重只允许 Ultralytics 内置名或 `data/` 下文件
-- COCO128 1 epoch 的 mAP 只是冒烟指标
+- COCO128 1 epoch 的 mAP 只是冒烟指标；独立划分请看 v0.2 的 COCO 2017 mini / VOC 2007 mini
 
 ## 许可证
 

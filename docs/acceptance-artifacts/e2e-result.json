@@ -1,0 +1,20 @@
+{
+  "steps": {
+    "home": "PASS",
+    "upload_dataset": "PASS",
+    "create_job": "PASS",
+    "wait_train_succeeded": "PASS",
+    "inspect_experiments": "PASS",
+    "resources_ws": "PASS",
+    "run_inference_full": {
+      "status": "PASS",
+      "text": "backend=pytorch latency=47.1ms detections=3"
+    },
+    "run_inference_tiled": {
+      "status": "PASS",
+      "text": "backend=pytorch-tiled latency=45.2ms detections=3 tiles=1"
+    }
+  },
+  "skipped": [],
+  "train_status": "succeeded"
+}

@@ -140,7 +140,12 @@ export default function InferencePage() {
                 </option>
               ))}
             </select>
-            <select value={jobId} onChange={(e) => setJobId(e.target.value ? Number(e.target.value) : "")} style={{ marginLeft: 8 }}>
+            <select
+              data-testid="infer-job"
+              value={jobId}
+              onChange={(e) => setJobId(e.target.value ? Number(e.target.value) : "")}
+              style={{ marginLeft: 8 }}
+            >
               <option value="">Or training job…</option>
               {jobs.map((j) => (
                 <option key={j.id} value={j.id}>
@@ -150,14 +155,27 @@ export default function InferencePage() {
             </select>
           </p>
           <p>
-            <input type="file" accept="image/*" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
+            <input
+              data-testid="infer-file"
+              type="file"
+              accept="image/*"
+              onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+            />
           </p>
           <p>
             <label>
-              <input type="checkbox" checked={tiled} onChange={(e) => setTiled(e.target.checked)} /> Tiled large-image + class-aware NMS
+              <input
+                data-testid="infer-tiled"
+                type="checkbox"
+                checked={tiled}
+                onChange={(e) => setTiled(e.target.checked)}
+              />{" "}
+              Tiled large-image + class-aware NMS
             </label>
           </p>
-          <button type="submit">Detect image</button>
+          <button type="submit" data-testid="infer-submit">
+            Detect image
+          </button>
           <button type="button" className="secondary" onClick={() => onExport("json")} style={{ marginLeft: 8 }}>
             Export JSON
           </button>
@@ -182,7 +200,7 @@ export default function InferencePage() {
       </div>
       {result && (
         <div className="card">
-          <p className="mono">
+          <p className="mono" data-testid="infer-result">
             backend={result.backend} latency={result.latency_ms.toFixed(1)}ms detections={result.detections.length}
             {result.tiled ? ` tiles=${result.tile_count}` : ""}
           </p>
