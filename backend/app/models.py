@@ -86,6 +86,32 @@ class MetricPoint(Base):
     job: Mapped[TrainingJob] = relationship(back_populates="metric_points")
 
 
+class ModelVersion(Base):
+    __tablename__ = "model_versions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    job_id: Mapped[int] = mapped_column(ForeignKey("training_jobs.id"), index=True)
+    version: Mapped[str] = mapped_column(String(64))
+    pytorch_path: Mapped[str] = mapped_column(String(512))
+    onnx_path: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    pytorch_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    onnx_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    metrics_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class OnnxExportRecord(Base):
+    __tablename__ = "onnx_export_records"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    model_version_id: Mapped[int] = mapped_column(ForeignKey("model_versions.id"), index=True)
+    onnx_path: Mapped[str] = mapped_column(String(512))
+    opset: Mapped[int] = mapped_column(Integer, default=12)
+    size_bytes: Mapped[int] = mapped_column(Integer, default=0)
+    sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
 class InferenceRun(Base):
     __tablename__ = "inference_runs"
 

@@ -255,6 +255,62 @@ class ExperimentCompareResponse(BaseModel):
     metric_table: list[dict[str, Any]]
 
 
+class ModelVersionOut(BaseModel):
+    id: int
+    job_id: int
+    version: str
+    pytorch_path: str
+    onnx_path: str | None
+    pytorch_sha256: str | None
+    onnx_sha256: str | None
+    metrics_json: dict[str, Any] | None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class OnnxExportRecordOut(BaseModel):
+    id: int
+    model_version_id: int
+    onnx_path: str
+    opset: int
+    size_bytes: int
+    sha256: str | None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class BatchCompareItem(BaseModel):
+    image_name: str
+    mean_iou: float
+    count_diff: int
+    pytorch_detections: int
+    onnx_detections: int
+
+
+class BatchOnnxCompareResponse(BaseModel):
+    model_version_id: int
+    items: list[BatchCompareItem]
+    mean_iou_avg: float
+
+
+class BatchInferenceItem(BaseModel):
+    image_name: str
+    result: InferenceResponse
+
+
+class BatchInferenceResponse(BaseModel):
+    backend: str
+    items: list[BatchInferenceItem]
+    total_latency_ms: float
+
+
+class DetectionExportFormat(str, Enum):
+    json = "json"
+    csv = "csv"
+
+
 class ConfusionMatrixResponse(BaseModel):
     available: bool
     matrix: list[list[float]] | None = None

@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import csv
+import io
+import json
 import time
 from pathlib import Path
 
@@ -8,7 +11,7 @@ import numpy as np
 import onnxruntime as ort
 from ultralytics import YOLO
 
-from app.schemas import DetectionBox, InferenceResponse
+from app.schemas import BatchInferenceItem, BatchInferenceResponse, DetectionBox, InferenceResponse
 from app.services.tiling import generate_tiles, nms_boxes
 
 
@@ -54,7 +57,7 @@ def infer_pytorch(weights: str | Path, image_path: Path, conf: float = 0.25, dev
 
 def infer_onnx(onnx_path: str | Path, image_path: Path, conf: float = 0.25) -> InferenceResponse:
     session = ort.InferenceSession(str(onnx_path), providers=["CPUExecutionProvider"])
-    model = YOLO(str(onnx_path))  # ultralytics can load onnx for unified postprocess
+    model = YOLO(str(onnx_path))
     t0 = time.perf_counter()
     results = model.predict(source=str(image_path), conf=conf, verbose=False)
     latency = (time.perf_counter() - t0) * 1000
@@ -62,7 +65,7 @@ def infer_onnx(onnx_path: str | Path, image_path: Path, conf: float = 0.25) -> I
     h, w = img.shape[:2]
     names = model.names
     dets = _to_detections(results[0], names)
-    _ = session  # session retained for future raw ORT path
+    _ = session
     return InferenceResponse(
         backend="onnx",
         latency_ms=latency,
@@ -72,13 +75,35 @@ def infer_onnx(onnx_path: str | Path, image_path: Path, conf: float = 0.25) -> I
     )
 
 
-def infer_tiled_pytorch(
+def _global_nms(
+    all_boxes: list[list[float]],
+    all_scores: list[float],
+    all_classes: list[int],
+    iou_threshold: float = 0.5,
+) -> list[int]:
+    """Class-aware global NMS after tiling."""
+    keep: list[int] = []
+    by_class: dict[int, list[int]] = {}
+    for i, cls in enumerate(all_classes):
+        by_class.setdefault(cls, []).append(i)
+    for _, indices in by_class.items():
+        boxes = np.array([all_boxes[i] for i in indices])
+        scores = np.array([all_scores[i] for i in indices])
+        local_keep = nms_boxes(boxes, scores, iou_threshold=iou_threshold)
+        keep.extend(indices[i] for i in local_keep)
+    return keep
+
+
+def infer_tiled(
     weights: str | Path,
     image_path: Path,
+    *,
     conf: float = 0.25,
     tile_size: int = 640,
     overlap: float = 0.2,
     device: str = "cpu",
+    backend: str = "pytorch",
+    nms_iou: float = 0.5,
 ) -> InferenceResponse:
     model = YOLO(str(weights))
     img = cv2.imread(str(image_path))
@@ -114,7 +139,7 @@ def infer_tiled_pytorch(
     names = model.names
     dets: list[DetectionBox] = []
     if all_boxes:
-        keep = nms_boxes(np.array(all_boxes), np.array(all_scores))
+        keep = _global_nms(all_boxes, all_scores, all_classes, iou_threshold=nms_iou)
         for idx in keep:
             cls_id = all_classes[idx]
             dets.append(
@@ -130,7 +155,7 @@ def infer_tiled_pytorch(
             )
 
     return InferenceResponse(
-        backend="pytorch-tiled",
+        backend=f"{backend}-tiled",
         latency_ms=latency,
         image_width=w,
         image_height=h,
@@ -138,6 +163,81 @@ def infer_tiled_pytorch(
         tiled=True,
         tile_count=len(tiles),
     )
+
+
+def infer_tiled_pytorch(
+    weights: str | Path,
+    image_path: Path,
+    conf: float = 0.25,
+    tile_size: int = 640,
+    overlap: float = 0.2,
+    device: str = "cpu",
+) -> InferenceResponse:
+    return infer_tiled(weights, image_path, conf=conf, tile_size=tile_size, overlap=overlap, device=device, backend="pytorch")
+
+
+def infer_video(
+    weights: str | Path,
+    video_path: Path,
+    *,
+    conf: float = 0.25,
+    device: str = "cpu",
+    max_frames: int = 32,
+    stride: int = 1,
+) -> BatchInferenceResponse:
+    model = YOLO(str(weights))
+    cap = cv2.VideoCapture(str(video_path))
+    if not cap.isOpened():
+        raise ValueError("cannot open video")
+
+    items: list[BatchInferenceItem] = []
+    t0 = time.perf_counter()
+    frame_idx = 0
+    processed = 0
+    while processed < max_frames:
+        ok, frame = cap.read()
+        if not ok:
+            break
+        if frame_idx % stride != 0:
+            frame_idx += 1
+            continue
+        tmp = video_path.parent / f"_vf_{frame_idx}.jpg"
+        cv2.imwrite(str(tmp), frame)
+        try:
+            results = model.predict(source=str(tmp), conf=conf, device=device, verbose=False)
+            h, w = frame.shape[:2]
+            dets = _to_detections(results[0], model.names)
+            items.append(
+                BatchInferenceItem(
+                    image_name=f"frame_{frame_idx}",
+                    result=InferenceResponse(
+                        backend="pytorch",
+                        latency_ms=0,
+                        image_width=w,
+                        image_height=h,
+                        detections=dets,
+                    ),
+                )
+            )
+            processed += 1
+        finally:
+            tmp.unlink(missing_ok=True)
+        frame_idx += 1
+    cap.release()
+    total_ms = (time.perf_counter() - t0) * 1000
+    return BatchInferenceResponse(backend="pytorch-video", items=items, total_latency_ms=total_ms)
+
+
+def export_detections_payload(detections: list[DetectionBox], fmt: str) -> tuple[str, str, str]:
+    if fmt == "csv":
+        buf = io.StringIO()
+        writer = csv.writer(buf)
+        writer.writerow(["class_id", "class_name", "confidence", "x1", "y1", "x2", "y2"])
+        for d in detections:
+            writer.writerow([d.class_id, d.class_name, d.confidence, d.x1, d.y1, d.x2, d.y2])
+        return "text/csv", "detections.csv", buf.getvalue()
+    body = json.dumps([d.model_dump() for d in detections], indent=2)
+    return "application/json", "detections.json", body
 
 
 def compare_pytorch_onnx(
@@ -149,7 +249,6 @@ def compare_pytorch_onnx(
 ) -> tuple[InferenceResponse, InferenceResponse, float, int]:
     pt = infer_pytorch(weights, image_path, conf=conf, device=device)
     ox = infer_onnx(onnx_path, image_path, conf=conf)
-    # overlap metric: mean max IoU per pytorch box
     if not pt.detections:
         return pt, ox, 0.0, abs(len(pt.detections) - len(ox.detections))
     onnx_arr = np.array([[d.x1, d.y1, d.x2, d.y2] for d in ox.detections]) if ox.detections else np.zeros((0, 4))

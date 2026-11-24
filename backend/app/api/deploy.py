@@ -11,9 +11,11 @@ def deploy_status() -> dict:
     return {
         "service": "yoloflow-inference",
         "status": "skeleton",
-        "message": "Use POST /api/v1/inference/detect for now; standalone ORT service in YF-7.",
+        "message": "Main API inference at /api/v1/inference/*; standalone ORT at :8001 (docker compose --profile ort).",
         "endpoints": {
             "health": "/api/v1/deploy/status",
             "infer": "/api/v1/inference/detect",
+            "ort_health": "http://127.0.0.1:8001/health",
+            "ort_detect": "http://127.0.0.1:8001/v1/detect",
         },
     }

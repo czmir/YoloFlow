@@ -21,6 +21,19 @@ services:
       - api
     command: python worker/main.py
 
+  ort-inference:
+    profiles: ["ort"]
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.ort
+    ports:
+      - "8001:8001"
+    volumes:
+      - ./data:/app/data
+    environment:
+      - YOLOFLOW_ORT_MODEL=/app/data/workspaces/job_1/model.onnx
+    command: python deploy/ort_server/main.py
+
   frontend:
     build:
       context: .

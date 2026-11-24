@@ -13,6 +13,7 @@ from app.config import settings
 from app.database import SessionLocal
 from app.models import JobStatus, MetricPoint, TrainingJob
 from app.services.experiment_artifacts import collect_post_train_artifacts
+from app.services.model_registry import register_job_model
 from app.services.job_state import claim_pending_job
 from app.services.onnx_export import export_to_onnx
 
@@ -169,6 +170,7 @@ def run_training_job(job_id: int) -> None:
                     "elapsed_seconds": elapsed,
                     "resumed_from": job.resume_from,
                 }
+                register_job_model(db, job)
                 db.commit()
     except Exception as exc:  # noqa: BLE001
         msg = str(exc)
