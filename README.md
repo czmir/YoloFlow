@@ -2,85 +2,100 @@
 
 [中文说明](README.zh-CN.md)
 
-Lightweight YOLO vision platform for individuals and small teams: dataset validation, CPU-friendly training, ONNX export, inference (including tiled large images), and a minimal experiment UI.
+Lightweight YOLO vision platform for individuals and small teams: datasets, CPU-friendly training, model registry, ONNX export, experiments, and production-oriented inference (batch, video, tiled large images).
 
-Inspired by the problem space of [LiteTrain](https://github.com/gaoxuyang914/litetrain); **independent implementation** (React + simplified job queue, no LiteTrain code copy).
+Independent of [LiteTrain](https://github.com/gaoxuyang914/litetrain) code; similar problem space.
 
 ## Architecture
 
 ```mermaid
-flowchart LR
-  subgraph ui [Frontend React]
-    INF[Inference]
-    DS[Datasets]
-    TR[Training]
+flowchart TB
+  subgraph ui [React UI :5173]
+    DS[Datasets + annotations]
+    TR[Training + logs]
     EXP[Experiments]
+    INF[Inference]
     RES[Resources WS]
   end
-  subgraph api [FastAPI]
-    DB[(SQLite)]
+  subgraph api [FastAPI :8000]
+    DB[(SQLite WAL)]
     Q[Training queue]
-    VAL[Dataset validator]
-    ORT[ONNX / inference]
+    REG[Model registry]
+    INFAPI[Inference API]
   end
   subgraph worker [Worker optional]
-    RUN[Ultralytics train]
+    POLL[Job poller + Ultralytics]
   end
-  ui --> api
-  Q --> RUN
-  RUN --> DB
+  subgraph ort [ORT service :8001 profile ort]
+    ORT[ONNX detect]
+  end
+  ui <-->|REST + WS| api
+  Q --> POLL
+  POLL --> DB
+  REG --> DB
+  ort -. optional .-> DB
 ```
 
 ## Quick start
 
 ```bash
-# Linux / macOS (python3-venv recommended)
 bash scripts/setup.sh
-source .venv/bin/activate   # or use system pip
+# Linux with venv:
+source .venv/bin/activate
 export PYTHONPATH="$(pwd)/backend"
 
-# Terminal 1 — API
+# API
 uvicorn app.main:app --app-dir backend --reload --host 127.0.0.1 --port 8000
 
-# Terminal 2 — UI
+# UI (new terminal)
 cd frontend && npm run dev
+```
 
-# Acceptance train (COCO128, 1 epoch CPU) + ONNX compare
+Verify locally:
+
+```bash
+bash scripts/verify-quickstart.sh
+```
+
+Acceptance training (real COCO128, 1 epoch, CPU):
+
+```bash
 python scripts/acceptance_train.py
 ```
 
-Docker: `docker compose up --build` (API `:8000`, frontend `:5173`, worker polls pending jobs).
+Docker:
+
+```bash
+docker compose up --build
+# Optional ONNX sidecar:
+docker compose --profile ort up ort-inference
+```
+
+## Key APIs
+
+| Area | Examples |
+| --- | --- |
+| Datasets | `POST /api/v1/datasets/upload-zip`, `.../split`, `.../samples/.../annotations` |
+| Training | `POST /api/v1/training/jobs`, `GET .../queue`, `GET .../jobs/{id}/logs` |
+| Models | `GET /api/v1/models`, `POST .../compare-batch` |
+| Inference | `POST /api/v1/inference/detect-batch`, `.../export-detections` |
+| Experiments | `GET /api/v1/experiments`, `POST /api/v1/experiments/compare` |
+| Monitor | `WS /ws/resources` (ping/pong + metrics) |
 
 ## Repository layout
 
 | Path | Role |
 | --- | --- |
-| `backend/` | FastAPI, SQLite models, Ultralytics training hooks, inference |
-| `worker/` | Optional standalone job poller |
-| `frontend/` | React + TypeScript (Vite) |
-| `shared/` | Cross-language types |
-| `scripts/` | Setup, dev start, acceptance training |
-| `deploy/` | Dockerfiles |
-| `tests/` | pytest smoke + dataset validation |
+| `backend/` | FastAPI app |
+| `frontend/` | React + Vite |
+| `worker/` | Standalone training poller |
+| `deploy/ort_server/` | YF-7 ORT microservice |
+| `tests/` | pytest suite |
+| `scripts/` | setup, verify, acceptance |
 
-## Push to GitHub (`czmir/YoloFlow`)
+## CI
 
-```bash
-git remote add yoloflow https://github.com/czmir/YoloFlow.git   # once
-git push -u yoloflow main
-```
-
-If the default `origin` points elsewhere, add `yoloflow` as above or retarget `origin` to the YoloFlow URL.
-
-## Roadmap (YF-2 … YF-8)
-
-- **YF-2** Full dataset ZIP UX, quality gates, versioning
-- **YF-3** Robust scheduler, cancel/resume, multi-worker
-- **YF-4** Experiment compare, richer charts
-- **YF-5** Model registry, ONNX opset matrix
-- **YF-6** Production tiling policies, batch infer
-- **YF-7** Standalone ONNX Runtime deployment service
-- **YF-8** CI hardening, docs, release pipeline
+GitHub Actions: `.github/workflows/ci.yml` — backend `pytest`, frontend `typecheck` + `build`.
 
 ## License
 

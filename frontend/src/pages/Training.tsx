@@ -21,6 +21,8 @@ export default function TrainingPage() {
   const [form, setForm] = useState({ name: "demo-train", dataset_id: 0, epochs: 3, batch_size: 4, imgsz: 320 });
 
   const [queue, setQueue] = useState<{ pending: { id: number; name: string; position?: number }[]; active_job_id: number | null } | null>(null);
+  const [logJobId, setLogJobId] = useState<number | "">("");
+  const [logText, setLogText] = useState("");
 
   async function refresh() {
     const [ds, js, q] = await Promise.all([
@@ -54,6 +56,13 @@ export default function TrainingPage() {
   async function pauseJob(id: number) {
     await apiPost(`/training/jobs/${id}/pause`);
     await refresh();
+  }
+
+  async function loadLogs(id: number) {
+    const r = await fetch(`/api/v1/training/jobs/${id}/logs?limit=12000`);
+    const body = await r.json();
+    setLogText(body.content || "");
+    setLogJobId(id);
   }
 
   return (
@@ -108,6 +117,9 @@ export default function TrainingPage() {
                 <td>{j.device}</td>
                 <td>{typeof j.metrics_json?.elapsed_seconds === "number" ? j.metrics_json.elapsed_seconds.toFixed(1) : "-"}</td>
                 <td>
+                  <button type="button" className="secondary" onClick={() => loadLogs(j.id)}>
+                    Logs
+                  </button>{" "}
                   {(j.status === "pending" || j.status === "running") && (
                     <>
                       <button type="button" className="secondary" onClick={() => pauseJob(j.id)}>
@@ -124,6 +136,14 @@ export default function TrainingPage() {
           </tbody>
         </table>
       </div>
+      {logJobId !== "" && (
+        <div className="card">
+          <h3>Job #{logJobId} log</h3>
+          <pre className="mono" style={{ maxHeight: 320, overflow: "auto", whiteSpace: "pre-wrap" }}>
+            {logText || "(empty)"}
+          </pre>
+        </div>
+      )}
     </div>
   );
 }

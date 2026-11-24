@@ -194,6 +194,10 @@ class ResourceSnapshot(BaseModel):
     memory_used_mb: float
     active_jobs: int
     queued_jobs: int
+    paused_jobs: int | None = None
+    active_job_id: int | None = None
+    server_time: float | None = None
+    app: str | None = None
 
 
 class QueueJobItem(BaseModel):

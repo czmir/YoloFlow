@@ -32,5 +32,8 @@ export interface ResourceSnapshot {
   memory_used_mb: number;
   active_jobs: number;
   queued_jobs: number;
+  paused_jobs?: number;
   active_job_id?: number | null;
+  server_time?: number;
+  app?: string;
 }
