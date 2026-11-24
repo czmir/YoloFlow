@@ -15,6 +15,26 @@ from app.models import JobStatus, MetricPoint, TrainingJob
 from app.services.onnx_export import export_to_onnx
 
 
+class JobControlCallback:
+    def __init__(self, job_id: int):
+        self.job_id = job_id
+
+    def on_train_epoch_end(self, trainer) -> None:  # type: ignore[no-untyped-def]
+        with SessionLocal() as db:
+            job = db.get(TrainingJob, self.job_id)
+            if not job:
+                return
+            if job.cancel_requested:
+                trainer.stop = True
+                raise RuntimeError("job cancelled by user")
+            if job.pause_requested:
+                job.status = JobStatus.paused.value
+                job.pause_requested = False
+                db.commit()
+                trainer.stop = True
+                raise RuntimeError("job paused by user")
+
+
 class MetricsCallback:
     """Captures per-epoch metrics via Ultralytics trainer hooks."""
 
@@ -97,10 +117,12 @@ def run_training_job(job_id: int) -> None:
     old_stdout = sys.stdout
     sys.stdout = _Tee()  # type: ignore[assignment]
 
-    callback = MetricsCallback(job_id)
+    metrics_cb = MetricsCallback(job_id)
+    control_cb = JobControlCallback(job_id)
     try:
         model = YOLO(resume_path or weights)
-        model.add_callback("on_fit_epoch_end", callback.on_fit_epoch_end)
+        model.add_callback("on_fit_epoch_end", metrics_cb.on_fit_epoch_end)
+        model.add_callback("on_train_epoch_end", control_cb.on_train_epoch_end)
 
         train_kwargs = {
             "data": yaml_path,
@@ -144,13 +166,21 @@ def run_training_job(job_id: int) -> None:
                 }
                 db.commit()
     except Exception as exc:  # noqa: BLE001
+        msg = str(exc)
         with SessionLocal() as db:
             job = db.get(TrainingJob, job_id)
             if job:
-                job.status = JobStatus.failed.value
+                if "cancelled" in msg:
+                    job.status = JobStatus.cancelled.value
+                elif "paused" in msg:
+                    job.status = JobStatus.paused.value
+                else:
+                    job.status = JobStatus.failed.value
                 job.finished_at = datetime.now(timezone.utc)
-                job.error_message = str(exc)
+                job.error_message = msg
                 db.commit()
+        if "cancelled" in msg or "paused" in msg:
+            return
         raise
     finally:
         sys.stdout = old_stdout
@@ -197,6 +227,13 @@ class TrainingQueue:
     def active_job_id(self) -> int | None:
         with self._lock:
             return self._active_id
+
+    def kick(self) -> None:
+        """Try to start the next pending job if idle."""
+        with self._lock:
+            if self._active_id is not None:
+                return
+        self._dispatch_next()
 
 
 training_queue = TrainingQueue()

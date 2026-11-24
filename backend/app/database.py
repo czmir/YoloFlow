@@ -50,3 +50,20 @@ def init_db() -> None:
     Path = __import__("pathlib").Path
     Path(db_path).parent.mkdir(parents=True, exist_ok=True)
     Base.metadata.create_all(bind=engine)
+    _migrate_sqlite()
+
+
+def _migrate_sqlite() -> None:
+    from sqlalchemy import text
+
+    stmts = [
+        "ALTER TABLE datasets ADD COLUMN split_config_json JSON",
+        "ALTER TABLE training_jobs ADD COLUMN cancel_requested BOOLEAN DEFAULT 0",
+        "ALTER TABLE training_jobs ADD COLUMN pause_requested BOOLEAN DEFAULT 0",
+    ]
+    with engine.begin() as conn:
+        for stmt in stmts:
+            try:
+                conn.execute(text(stmt))
+            except Exception:  # noqa: BLE001
+                pass

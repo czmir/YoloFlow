@@ -19,6 +19,7 @@ class JobStatus(str, enum.Enum):
     succeeded = "succeeded"
     failed = "failed"
     cancelled = "cancelled"
+    paused = "paused"
 
 
 class Dataset(Base):
@@ -30,6 +31,7 @@ class Dataset(Base):
     root_dir: Mapped[str] = mapped_column(String(512))
     stats_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     validation_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    split_config_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
     jobs: Mapped[list[TrainingJob]] = relationship(back_populates="dataset")
@@ -54,6 +56,8 @@ class TrainingJob(Base):
     metrics_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     log_path: Mapped[str | None] = mapped_column(String(512), nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    cancel_requested: Mapped[bool] = mapped_column(default=False)
+    pause_requested: Mapped[bool] = mapped_column(default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

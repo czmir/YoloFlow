@@ -1,5 +1,6 @@
 import { NavLink, Route, Routes } from "react-router-dom";
 import DatasetsPage from "./pages/Datasets";
+import DatasetAnnotationsPage from "./pages/DatasetAnnotations";
 import ExperimentsPage from "./pages/Experiments";
 import InferencePage from "./pages/Inference";
 import ResourcesPage from "./pages/Resources";
@@ -22,6 +23,7 @@ export default function App() {
         <Routes>
           <Route path="/" element={<InferencePage />} />
           <Route path="/datasets" element={<DatasetsPage />} />
+          <Route path="/datasets/:id/annotations" element={<DatasetAnnotationsPage />} />
           <Route path="/training" element={<TrainingPage />} />
           <Route path="/experiments" element={<ExperimentsPage />} />
           <Route path="/resources" element={<ResourcesPage />} />

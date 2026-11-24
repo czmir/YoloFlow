@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from enum import Enum
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -14,12 +15,30 @@ class DatasetStats(BaseModel):
     class_names: list[str] = Field(default_factory=list)
     class_counts_train: dict[str, int] = Field(default_factory=dict)
     class_counts_val: dict[str, int] = Field(default_factory=dict)
+    class_counts_total: dict[str, int] = Field(default_factory=dict)
+
+
+class ValidationIssue(BaseModel):
+    severity: Literal["error", "warning"]
+    code: str
+    message: str
+    path: str | None = None
 
 
 class DatasetValidation(BaseModel):
     valid: bool
     errors: list[str] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
+    issues: list[ValidationIssue] = Field(default_factory=list)
+
+
+class SplitConfig(BaseModel):
+    mode: Literal["ratio", "manual"] = "ratio"
+    val_ratio: float = Field(default=0.2, ge=0.05, le=0.5)
+    seed: int = 42
+    train_rel: str = "images/train"
+    val_rel: str = "images/val"
+    manual_val_files: list[str] = Field(default_factory=list)
 
 
 class DatasetCreateResponse(BaseModel):
@@ -34,11 +53,49 @@ class DatasetOut(BaseModel):
     id: int
     name: str
     yaml_path: str
+    root_dir: str | None = None
     stats: DatasetStats | None = None
     validation: DatasetValidation | None = None
+    split_config: SplitConfig | None = None
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class ClassDistribution(BaseModel):
+    class_names: list[str]
+    train: dict[str, int]
+    val: dict[str, int]
+    total: dict[str, int]
+
+
+class AnnotationBox(BaseModel):
+    class_id: int
+    class_name: str
+    x_center: float
+    y_center: float
+    width: float
+    height: float
+    x1: float
+    y1: float
+    x2: float
+    y2: float
+
+
+class SampleAnnotation(BaseModel):
+    dataset_id: int
+    split: str
+    file_name: str
+    image_width: int
+    image_height: int
+    boxes: list[AnnotationBox]
+
+
+class SplitRequest(BaseModel):
+    mode: Literal["ratio", "manual"] = "ratio"
+    val_ratio: float = Field(default=0.2, ge=0.05, le=0.5)
+    seed: int = 42
+    manual_val_files: list[str] = Field(default_factory=list)
 
 
 class TrainingJobCreate(BaseModel):
@@ -136,3 +193,30 @@ class ResourceSnapshot(BaseModel):
     memory_used_mb: float
     active_jobs: int
     queued_jobs: int
+
+
+class QueueJobItem(BaseModel):
+    id: int
+    name: str
+    status: str
+    position: int | None = None
+    created_at: datetime
+
+
+class TrainingQueueOut(BaseModel):
+    active_job_id: int | None
+    running: TrainingJobOut | None
+    pending: list[QueueJobItem]
+    paused: list[QueueJobItem]
+
+
+class CheckpointInfo(BaseModel):
+    path: str
+    kind: str
+    size_bytes: int
+
+
+class CheckpointVerifyResult(BaseModel):
+    path: str
+    loadable: bool
+    message: str

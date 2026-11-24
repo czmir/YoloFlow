@@ -20,11 +20,15 @@ export default function TrainingPage() {
   const [jobs, setJobs] = useState<JobRow[]>([]);
   const [form, setForm] = useState({ name: "demo-train", dataset_id: 0, epochs: 3, batch_size: 4, imgsz: 320 });
 
+  const [queue, setQueue] = useState<{ pending: { id: number; name: string; position?: number }[]; active_job_id: number | null } | null>(null);
+
   async function refresh() {
-    const [ds, js] = await Promise.all([
+    const [ds, js, q] = await Promise.all([
       apiGet<DatasetRow[]>("/datasets"),
       apiGet<JobRow[]>("/training/jobs"),
+      apiGet<{ pending: { id: number; name: string; position?: number }[]; active_job_id: number | null }>("/training/queue"),
     ]);
+    setQueue(q);
     setDatasets(ds);
     setJobs(js);
     if (ds.length && form.dataset_id === 0) setForm((f) => ({ ...f, dataset_id: ds[0].id }));
@@ -42,9 +46,31 @@ export default function TrainingPage() {
     await refresh();
   }
 
+  async function cancelJob(id: number) {
+    await apiPost(`/training/jobs/${id}/cancel`);
+    await refresh();
+  }
+
+  async function pauseJob(id: number) {
+    await apiPost(`/training/jobs/${id}/pause`);
+    await refresh();
+  }
+
   return (
     <div>
       <h2>Training</h2>
+      {queue && (
+        <div className="card mono">
+          Queue: active #{queue.active_job_id ?? "-"} | pending {queue.pending.length}
+          <ul>
+            {queue.pending.map((p) => (
+              <li key={p.id}>
+                #{p.position} job {p.id} {p.name}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
       <div className="card">
         <form onSubmit={submit}>
           <p>
@@ -70,6 +96,7 @@ export default function TrainingPage() {
               <th>Status</th>
               <th>Device</th>
               <th>Elapsed(s)</th>
+              <th>Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -80,6 +107,18 @@ export default function TrainingPage() {
                 <td>{j.status}</td>
                 <td>{j.device}</td>
                 <td>{typeof j.metrics_json?.elapsed_seconds === "number" ? j.metrics_json.elapsed_seconds.toFixed(1) : "-"}</td>
+                <td>
+                  {(j.status === "pending" || j.status === "running") && (
+                    <>
+                      <button type="button" className="secondary" onClick={() => pauseJob(j.id)}>
+                        Pause
+                      </button>{" "}
+                      <button type="button" className="secondary" onClick={() => cancelJob(j.id)}>
+                        Cancel
+                      </button>
+                    </>
+                  )}
+                </td>
               </tr>
             ))}
           </tbody>

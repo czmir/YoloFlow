@@ -24,3 +24,11 @@ def test_deploy_skeleton():
     r = client.get("/api/v1/deploy/status")
     assert r.status_code == 200
     assert r.json()["status"] == "skeleton"
+
+
+def test_training_queue():
+    r = client.get("/api/v1/training/queue")
+    assert r.status_code == 200
+    body = r.json()
+    assert "pending" in body
+    assert "active_job_id" in body
