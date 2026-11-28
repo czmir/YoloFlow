@@ -1,0 +1,301 @@
+{
+  "timestamp_utc": "2026-11-28T08:48:55.177608+00:00",
+  "source": "https://github.com/ultralytics/assets/releases/download/v0.0.0/coco128.zip",
+  "selection": "Sorted COCO128 image IDs with side > 320 and at least one box below 1024 px²",
+  "metric": "Class-aware one-to-one match, IoU > 0.5; area uses bounding box, not segmentation",
+  "timing": "Single call per mode and image, includes model/session creation and postprocessing",
+  "imgsz": 320,
+  "confidence": 0.25,
+  "overlap": 0.2,
+  "torch_threads": 8,
+  "platform": "Windows-11-10.0.26300-SP0",
+  "processor": "AMD64 Family 23 Model 96 Stepping 1, AuthenticAMD",
+  "versions": {
+    "torch": "2.5.1+cpu",
+    "ort": "1.20.1",
+    "ultralytics": "8.3.70"
+  },
+  "checkpoint": "yolo11n.pt",
+  "checkpoint_sha256": "0ebbc80d4a7680d14987a577cd21342b65ecfd94632bd9a8da63ae6417644ee1",
+  "small_boxes": 50,
+  "summary": {
+    "pytorch_full": {
+      "matched": 1,
+      "small_box_recall": 0.02,
+      "median_wall_ms": 199.668
+    },
+    "pytorch_tiled": {
+      "matched": 8,
+      "small_box_recall": 0.16,
+      "median_wall_ms": 361.192
+    },
+    "onnx_full": {
+      "matched": 2,
+      "small_box_recall": 0.04,
+      "median_wall_ms": 129.707
+    },
+    "onnx_tiled": {
+      "matched": 8,
+      "small_box_recall": 0.16,
+      "median_wall_ms": 321.137
+    }
+  },
+  "images": [
+    {
+      "image": "000000000049.jpg",
+      "width": 381,
+      "height": 500,
+      "small_boxes": 4,
+      "modes": {
+        "pytorch_full": {
+          "matched_small_boxes": 0,
+          "detections": 6,
+          "tile_count": 0,
+          "wall_ms": 1641.156
+        },
+        "pytorch_tiled": {
+          "matched_small_boxes": 0,
+          "detections": 10,
+          "tile_count": 4,
+          "wall_ms": 320.088
+        },
+        "onnx_full": {
+          "matched_small_boxes": 0,
+          "detections": 6,
+          "tile_count": 0,
+          "wall_ms": 176.573
+        },
+        "onnx_tiled": {
+          "matched_small_boxes": 0,
+          "detections": 10,
+          "tile_count": 4,
+          "wall_ms": 359.453
+        }
+      }
+    },
+    {
+      "image": "000000000071.jpg",
+      "width": 640,
+      "height": 426,
+      "small_boxes": 15,
+      "modes": {
+        "pytorch_full": {
+          "matched_small_boxes": 0,
+          "detections": 2,
+          "tile_count": 0,
+          "wall_ms": 254.481
+        },
+        "pytorch_tiled": {
+          "matched_small_boxes": 2,
+          "detections": 6,
+          "tile_count": 6,
+          "wall_ms": 500.13
+        },
+        "onnx_full": {
+          "matched_small_boxes": 0,
+          "detections": 2,
+          "tile_count": 0,
+          "wall_ms": 167.374
+        },
+        "onnx_tiled": {
+          "matched_small_boxes": 2,
+          "detections": 6,
+          "tile_count": 6,
+          "wall_ms": 339.034
+        }
+      }
+    },
+    {
+      "image": "000000000074.jpg",
+      "width": 640,
+      "height": 426,
+      "small_boxes": 4,
+      "modes": {
+        "pytorch_full": {
+          "matched_small_boxes": 0,
+          "detections": 10,
+          "tile_count": 0,
+          "wall_ms": 193.356
+        },
+        "pytorch_tiled": {
+          "matched_small_boxes": 2,
+          "detections": 10,
+          "tile_count": 6,
+          "wall_ms": 436.722
+        },
+        "onnx_full": {
+          "matched_small_boxes": 1,
+          "detections": 12,
+          "tile_count": 0,
+          "wall_ms": 129.291
+        },
+        "onnx_tiled": {
+          "matched_small_boxes": 2,
+          "detections": 10,
+          "tile_count": 6,
+          "wall_ms": 325.512
+        }
+      }
+    },
+    {
+      "image": "000000000077.jpg",
+      "width": 500,
+      "height": 375,
+      "small_boxes": 2,
+      "modes": {
+        "pytorch_full": {
+          "matched_small_boxes": 0,
+          "detections": 3,
+          "tile_count": 0,
+          "wall_ms": 210.216
+        },
+        "pytorch_tiled": {
+          "matched_small_boxes": 0,
+          "detections": 4,
+          "tile_count": 4,
+          "wall_ms": 311.969
+        },
+        "onnx_full": {
+          "matched_small_boxes": 0,
+          "detections": 3,
+          "tile_count": 0,
+          "wall_ms": 144.204
+        },
+        "onnx_tiled": {
+          "matched_small_boxes": 0,
+          "detections": 4,
+          "tile_count": 4,
+          "wall_ms": 318.058
+        }
+      }
+    },
+    {
+      "image": "000000000109.jpg",
+      "width": 640,
+      "height": 416,
+      "small_boxes": 8,
+      "modes": {
+        "pytorch_full": {
+          "matched_small_boxes": 1,
+          "detections": 2,
+          "tile_count": 0,
+          "wall_ms": 194.65
+        },
+        "pytorch_tiled": {
+          "matched_small_boxes": 3,
+          "detections": 8,
+          "tile_count": 6,
+          "wall_ms": 366.662
+        },
+        "onnx_full": {
+          "matched_small_boxes": 1,
+          "detections": 3,
+          "tile_count": 0,
+          "wall_ms": 119.242
+        },
+        "onnx_tiled": {
+          "matched_small_boxes": 3,
+          "detections": 8,
+          "tile_count": 6,
+          "wall_ms": 322.638
+        }
+      }
+    },
+    {
+      "image": "000000000110.jpg",
+      "width": 640,
+      "height": 480,
+      "small_boxes": 6,
+      "modes": {
+        "pytorch_full": {
+          "matched_small_boxes": 0,
+          "detections": 10,
+          "tile_count": 0,
+          "wall_ms": 183.418
+        },
+        "pytorch_tiled": {
+          "matched_small_boxes": 1,
+          "detections": 26,
+          "tile_count": 6,
+          "wall_ms": 466.332
+        },
+        "onnx_full": {
+          "matched_small_boxes": 0,
+          "detections": 11,
+          "tile_count": 0,
+          "wall_ms": 116.231
+        },
+        "onnx_tiled": {
+          "matched_small_boxes": 1,
+          "detections": 26,
+          "tile_count": 6,
+          "wall_ms": 299.576
+        }
+      }
+    },
+    {
+      "image": "000000000113.jpg",
+      "width": 416,
+      "height": 640,
+      "small_boxes": 9,
+      "modes": {
+        "pytorch_full": {
+          "matched_small_boxes": 0,
+          "detections": 10,
+          "tile_count": 0,
+          "wall_ms": 204.686
+        },
+        "pytorch_tiled": {
+          "matched_small_boxes": 0,
+          "detections": 21,
+          "tile_count": 6,
+          "wall_ms": 355.721
+        },
+        "onnx_full": {
+          "matched_small_boxes": 0,
+          "detections": 9,
+          "tile_count": 0,
+          "wall_ms": 115.305
+        },
+        "onnx_tiled": {
+          "matched_small_boxes": 0,
+          "detections": 21,
+          "tile_count": 6,
+          "wall_ms": 296.57
+        }
+      }
+    },
+    {
+      "image": "000000000127.jpg",
+      "width": 640,
+      "height": 481,
+      "small_boxes": 2,
+      "modes": {
+        "pytorch_full": {
+          "matched_small_boxes": 0,
+          "detections": 5,
+          "tile_count": 0,
+          "wall_ms": 185.029
+        },
+        "pytorch_tiled": {
+          "matched_small_boxes": 0,
+          "detections": 15,
+          "tile_count": 6,
+          "wall_ms": 352.973
+        },
+        "onnx_full": {
+          "matched_small_boxes": 0,
+          "detections": 5,
+          "tile_count": 0,
+          "wall_ms": 130.122
+        },
+        "onnx_tiled": {
+          "matched_small_boxes": 0,
+          "detections": 15,
+          "tile_count": 6,
+          "wall_ms": 319.636
+        }
+      }
+    }
+  ]
+}

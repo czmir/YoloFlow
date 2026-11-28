@@ -278,8 +278,11 @@ def main() -> int:
         deadline = time.time() + 90
         while time.time() < deadline:
             row = job_row(pause_job_id)
-            if row and row.status == JobStatus.running.value:
-                time.sleep(2.0)
+            if row and row.status == JobStatus.running.value and row.workspace_dir:
+                last = Path(row.workspace_dir) / "train" / "weights" / "last.pt"
+                if not last.is_file():
+                    time.sleep(0.1)
+                    continue
                 with SessionLocal() as db:
                     j = db.get(TrainingJob, pause_job_id)
                     if j:
@@ -299,8 +302,9 @@ def main() -> int:
         "status_after_pause": paused.status if paused else None,
         "error": err or (paused.error_message if paused else None),
         "seconds": round(time.perf_counter() - t0, 2),
+        "checkpoint": Path(paused.resume_from).name if paused and paused.resume_from else None,
     }
-    if not paused or paused.status != JobStatus.paused.value:
+    if not paused or paused.status != JobStatus.paused.value or not paused.resume_from:
         report["pause"]["ok"] = False
     else:
         with SessionLocal() as db:
@@ -309,7 +313,11 @@ def main() -> int:
         t0 = time.perf_counter()
         run_training_job(pause_job_id)
         resumed = job_row(pause_job_id)
-        report["pause"]["ok"] = bool(resumed and resumed.status == JobStatus.succeeded.value)
+        report["pause"]["ok"] = bool(
+            resumed and resumed.status == JobStatus.succeeded.value
+            and resumed.workspace_dir != paused.workspace_dir
+            and (resumed.metrics_json or {}).get("resumed_from") == paused.resume_from
+        )
         report["pause"]["status_after_resume"] = resumed.status if resumed else None
         report["pause"]["resume_seconds"] = round(time.perf_counter() - t0, 2)
 

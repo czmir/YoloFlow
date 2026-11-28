@@ -4,8 +4,10 @@ import threading
 import time
 from datetime import datetime, timezone
 from pathlib import Path
+from uuid import uuid4
 
 from ultralytics import YOLO
+from ultralytics.models.yolo.detect import DetectionTrainer
 
 from app.config import settings
 from app.database import SessionLocal
@@ -17,6 +19,7 @@ from app.services.job_state import (
     claim_job_by_id,
     claim_pending_job,
     is_control_exception,
+    lock_active_job,
     touch_heartbeat,
     worker_identity,
 )
@@ -26,23 +29,34 @@ from app.services.security import UnsafePathError, resolve_weight_path
 from app.services.stdio import redirect_stdio_to
 
 
+class JobLeaseLost(Exception):
+    """The training attempt no longer owns the job."""
+
+
+class IsolatedDetectionTrainer(DetectionTrainer):
+    def check_resume(self, overrides):
+        super().check_resume(overrides)
+        if self.resume:
+            # Ultralytics restores the previous output directory from the checkpoint.
+            self.args.save_dir = str(Path(overrides["project"]) / overrides["name"])
+
+
 class JobControlCallback:
-    def __init__(self, job_id: int):
+    def __init__(self, job_id: int, owner: str, started_at: datetime):
         self.job_id = job_id
+        self.owner = owner
+        self.started_at = started_at
 
     def on_train_epoch_end(self, trainer) -> None:  # type: ignore[no-untyped-def]
         with SessionLocal() as db:
-            job = db.get(TrainingJob, self.job_id)
+            job = lock_active_job(db, self.job_id, self.owner, self.started_at)
             if not job:
-                return
+                trainer.stop = True
+                raise JobLeaseLost(f"job {self.job_id} lease expired")
             if job.cancel_requested:
                 trainer.stop = True
                 raise JobCancelled(f"job {self.job_id} cancelled by user")
             if job.pause_requested:
-                job.status = JobStatus.paused.value
-                job.pause_requested = False
-                job.claimed_by = None
-                db.commit()
                 trainer.stop = True
                 raise JobPaused(f"job {self.job_id} paused by user")
 
@@ -50,8 +64,10 @@ class JobControlCallback:
 class MetricsCallback:
     """Captures per-epoch metrics via Ultralytics trainer hooks."""
 
-    def __init__(self, job_id: int):
+    def __init__(self, job_id: int, owner: str, started_at: datetime):
         self.job_id = job_id
+        self.owner = owner
+        self.started_at = started_at
 
     def on_fit_epoch_end(self, trainer) -> None:  # type: ignore[no-untyped-def]
         metrics = trainer.metrics or {}
@@ -68,6 +84,8 @@ class MetricsCallback:
             lr = None
 
         with SessionLocal() as db:
+            if lock_active_job(db, self.job_id, self.owner, self.started_at) is None:
+                raise JobLeaseLost(f"job {self.job_id} lease expired")
             db.add(
                 MetricPoint(
                     job_id=self.job_id,
@@ -116,7 +134,13 @@ def run_training_job(job_id: int) -> None:
                 return
         else:
             return
-        workspace = settings.workspaces_dir / f"job_{job_id}"
+        started_at = job.started_at
+        if started_at is None:
+            return
+        job = lock_active_job(db, job_id, owner, started_at)
+        if job is None:
+            return
+        workspace = settings.workspaces_dir / f"job_{job_id}" / uuid4().hex
         workspace.mkdir(parents=True, exist_ok=True)
         job.workspace_dir = str(workspace)
         log_path = workspace / "train.log"
@@ -135,7 +159,7 @@ def run_training_job(job_id: int) -> None:
         weight_spec = resolve_weight_path(resume_path or weights)
     except (UnsafePathError, FileNotFoundError) as exc:
         with SessionLocal() as db:
-            job = db.get(TrainingJob, job_id)
+            job = lock_active_job(db, job_id, owner, started_at)
             if job:
                 job.status = JobStatus.failed.value
                 job.finished_at = datetime.now(timezone.utc)
@@ -149,8 +173,8 @@ def run_training_job(job_id: int) -> None:
     hb_thread.start()
 
     log_file = open(log_path, "a", encoding="utf-8")  # noqa: SIM115
-    metrics_cb = MetricsCallback(job_id)
-    control_cb = JobControlCallback(job_id)
+    metrics_cb = MetricsCallback(job_id, owner, started_at)
+    control_cb = JobControlCallback(job_id, owner, started_at)
     try:
         with redirect_stdio_to(log_file, __import__("sys").__stdout__):
             model = YOLO(str(weight_spec))
@@ -173,7 +197,7 @@ def run_training_job(job_id: int) -> None:
                 train_kwargs["resume"] = True
 
             t0 = time.perf_counter()
-            results = model.train(**train_kwargs)
+            results = model.train(trainer=IsolatedDetectionTrainer, **train_kwargs)
             elapsed = time.perf_counter() - t0
 
             best = workspace / "train" / "weights" / "best.pt"
@@ -187,7 +211,7 @@ def run_training_job(job_id: int) -> None:
                 metrics_summary = dict(results.results_dict)
 
             with SessionLocal() as db:
-                job = db.get(TrainingJob, job_id)
+                job = lock_active_job(db, job_id, owner, started_at)
                 if job:
                     job.status = JobStatus.succeeded.value
                     job.finished_at = datetime.now(timezone.utc)
@@ -207,13 +231,14 @@ def run_training_job(job_id: int) -> None:
         cancelled = is_control_exception(exc, JobCancelled)
         paused = is_control_exception(exc, JobPaused)
         with SessionLocal() as db:
-            job = db.get(TrainingJob, job_id)
+            job = lock_active_job(db, job_id, owner, started_at)
             if job:
                 if cancelled:
                     job.status = JobStatus.cancelled.value
                     job.finished_at = datetime.now(timezone.utc)
                 elif paused:
                     job.status = JobStatus.paused.value
+                    job.pause_requested = False
                     last = Path(job.workspace_dir or "") / "train" / "weights" / "last.pt"
                     if last.exists():
                         job.resume_from = str(last)
@@ -224,7 +249,7 @@ def run_training_job(job_id: int) -> None:
                 job.error_message = f"{type(exc).__name__}: {exc}"
                 job.claimed_by = None
                 db.commit()
-        if cancelled or paused:
+        if cancelled or paused or is_control_exception(exc, JobLeaseLost):
             return
         raise
     finally:

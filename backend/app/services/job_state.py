@@ -1,16 +1,18 @@
 from __future__ import annotations
 
 import os
+from uuid import uuid4
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from sqlalchemy import update
+from sqlalchemy import or_, update
 from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.models import JobStatus, TrainingJob
 
 TERMINAL = {JobStatus.succeeded.value, JobStatus.failed.value, JobStatus.cancelled.value}
+_WORKER_INSTANCE = uuid4().hex
 
 
 class JobCancelled(Exception):
@@ -22,7 +24,7 @@ class JobPaused(Exception):
 
 
 def worker_identity() -> str:
-    return f"{settings.worker_name}:{os.getpid()}"
+    return f"{settings.worker_name}:{os.getpid()}:{_WORKER_INSTANCE}"
 
 
 def can_cancel(job: TrainingJob) -> bool:
@@ -161,16 +163,41 @@ def claim_job_by_id(db: Session, job_id: int, owner: str | None = None) -> Train
 
 def touch_heartbeat(db: Session, job_id: int, owner: str | None = None) -> None:
     owner = owner or worker_identity()
+    now = datetime.now(timezone.utc)
     db.execute(
         update(TrainingJob)
         .where(
             TrainingJob.id == job_id,
             TrainingJob.status == JobStatus.running.value,
             TrainingJob.claimed_by == owner,
+            TrainingJob.heartbeat_at > now - timedelta(seconds=settings.job_lease_seconds),
         )
-        .values(heartbeat_at=datetime.now(timezone.utc))
+        .values(heartbeat_at=now)
+        .execution_options(synchronize_session=False)
     )
     db.commit()
+
+
+def lock_active_job(
+    db: Session, job_id: int, owner: str, started_at: datetime
+) -> TrainingJob | None:
+    """Hold the SQLite write transaction while publishing changes for a live claim."""
+    cutoff = datetime.now(timezone.utc) - timedelta(seconds=settings.job_lease_seconds)
+    result = db.execute(
+        update(TrainingJob)
+        .where(
+            TrainingJob.id == job_id,
+            TrainingJob.status == JobStatus.running.value,
+            TrainingJob.claimed_by == owner,
+            TrainingJob.started_at == started_at,
+            TrainingJob.heartbeat_at > cutoff,
+        )
+        .values(heartbeat_at=TrainingJob.heartbeat_at)
+        .execution_options(synchronize_session=False)
+    )
+    if result.rowcount != 1:
+        return None
+    return db.get(TrainingJob, job_id, populate_existing=True)
 
 
 def recover_orphan_jobs(db: Session, *, now: datetime | None = None) -> list[int]:
@@ -193,16 +220,30 @@ def recover_orphan_jobs(db: Session, *, now: datetime | None = None) -> list[int
             candidate = Path(job.workspace_dir) / "train" / "weights" / "last.pt"
             if candidate.exists():
                 last_pt = str(candidate)
-        job.status = JobStatus.pending.value
-        job.cancel_requested = False
-        job.pause_requested = False
-        job.claimed_by = None
-        job.heartbeat_at = None
-        job.error_message = "recovered after process restart"
+        values = dict(
+            status=JobStatus.pending.value,
+            cancel_requested=False,
+            pause_requested=False,
+            claimed_by=None,
+            heartbeat_at=None,
+            error_message="recovered after process restart",
+        )
         if last_pt:
-            job.resume_from = last_pt
-            job.base_weights = last_pt
-        recovered.append(job.id)
+            values.update(resume_from=last_pt, base_weights=last_pt)
+        job_id = job.id
+        result = db.execute(
+            update(TrainingJob)
+            .where(
+                TrainingJob.id == job_id,
+                TrainingJob.status == JobStatus.running.value,
+                TrainingJob.claimed_by == job.claimed_by,
+                or_(TrainingJob.heartbeat_at.is_(None), TrainingJob.heartbeat_at <= stale_before),
+            )
+            .values(**values)
+            .execution_options(synchronize_session=False)
+        )
+        if result.rowcount == 1:
+            recovered.append(job_id)
     if recovered:
         db.commit()
     return recovered

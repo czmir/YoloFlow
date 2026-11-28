@@ -64,6 +64,14 @@ $env:PYTHONPATH = "$PWD\backend"
 pip install torch==2.5.1 torchvision==0.20.1 --index-url https://download.pytorch.org/whl/cpu
 ```
 
+### 交互式推理对比
+
+在 **Inference** 上传图像后，点击 **Compare full image and slices**，可比较同一输入尺寸和置信度阈值下的整图与切片推理。选择已导出 ONNX 的任务或模型版本后，可以比较 PyTorch 和 ONNX。[小目标实验与复现命令](docs/small-object-benchmark.md)。
+
+![实际切片推理对比界面](docs/images/ui-compare-slices.png)
+
+[PyTorch 与 ONNX 对比截图](docs/images/ui-compare-onnx.png) · [操作演示](docs/images/inference-compare-demo.gif)
+
 ### Docker
 
 ```bash

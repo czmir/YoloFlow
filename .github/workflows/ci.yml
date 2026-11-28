@@ -37,3 +37,19 @@ jobs:
         working-directory: frontend
       - run: npm run build
         working-directory: frontend
+  compose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Boot clean Compose stack
+        run: docker compose up --build -d
+      - name: Verify API, worker and frontend proxy
+        run: |
+          curl --fail --retry 15 --retry-delay 2 --retry-all-errors http://127.0.0.1:8000/health
+          curl --fail http://127.0.0.1:5173/
+          curl --fail http://127.0.0.1:5173/api/v1/training/jobs | jq -e 'type == "array"'
+          docker compose ps --status running --services | grep -Fx worker
+      - name: Capture service logs
+        if: always()
+        run: docker compose logs --no-color

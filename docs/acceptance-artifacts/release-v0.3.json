@@ -1,0 +1,264 @@
+{
+  "started_at": "2026-11-28T16:50:49+08:00",
+  "hardware_versions": {
+    "python": "3.12.12",
+    "platform": "Windows-11-10.0.26300-SP0",
+    "machine": "AMD64",
+    "cpu_count": 16,
+    "torch": "2.5.1+cpu",
+    "cuda_available": false,
+    "device": "cpu",
+    "ultralytics": "8.3.70",
+    "onnxruntime": "1.20.1",
+    "fastapi": "0.115.12",
+    "numpy": "1.26.4",
+    "note": "This VM is Linux. Windows start is scripts/setup.ps1 + scripts/start-dev.ps1."
+  },
+  "smoke_vs_formal": "COCO128 1-epoch is a smoke / plumbing check, not a generalization or SOTA eval. Do not treat mAP here as proof the model works on unseen data.",
+  "steps": {
+    "import_validate_seconds": 1.89,
+    "train_1epoch_seconds": 73.22,
+    "pt_vs_onnx_seconds": 0.35,
+    "large_image_seconds": 2.04,
+    "batch_infer_seconds": 0.45,
+    "video_infer_seconds": 0.33
+  },
+  "dataset": {
+    "name": "coco128",
+    "public": "Ultralytics COCO128",
+    "images_train": 128,
+    "images_val": 128,
+    "labels_train": 929,
+    "valid": true,
+    "warnings": [
+      "missing label for 000000000250.jpg",
+      "missing label for 000000000508.jpg",
+      "label without image: 000000000656.txt",
+      "label without image: 000000000659.txt",
+      "missing label for 000000000250.jpg",
+      "missing label for 000000000508.jpg",
+      "label without image: 000000000656.txt",
+      "label without image: 000000000659.txt"
+    ]
+  },
+  "train": {
+    "job_id": 1,
+    "status": "succeeded",
+    "params": {
+      "epochs": 1,
+      "batch": 4,
+      "imgsz": 320,
+      "device": "cpu",
+      "base_weights": "yolov8n.pt"
+    },
+    "metrics": {
+      "metrics/precision(B)": 0.6223526165923119,
+      "metrics/recall(B)": 0.4681627949948773,
+      "metrics/mAP50(B)": 0.5052712310828289,
+      "metrics/mAP50-95(B)": 0.3788034779979836,
+      "fitness": 0.3914502533064681,
+      "confusion_matrix_image": "${REPO}\\data\\workspaces\\job_1\\4fe1e9f84e7e4aad8ed4fe79f60f2e50\\train\\confusion_matrix.png",
+      "confusion_matrix_normalized_image": "${REPO}\\data\\workspaces\\job_1\\4fe1e9f84e7e4aad8ed4fe79f60f2e50\\train\\confusion_matrix_normalized.png",
+      "results_last_row": {
+        "epoch": "1",
+        "time": "21.7981",
+        "train/box_loss": "1.46361",
+        "train/cls_loss": "2.76017",
+        "train/dfl_loss": "1.3411",
+        "metrics/precision(B)": "0.62795",
+        "metrics/recall(B)": "0.46752",
+        "metrics/mAP50(B)": "0.50592",
+        "metrics/mAP50-95(B)": "0.37816",
+        "val/box_loss": "1.13615",
+        "val/cls_loss": "1.16884",
+        "val/dfl_loss": "1.07122",
+        "lr/pg0": "3.689e-05",
+        "lr/pg1": "3.689e-05",
+        "lr/pg2": "3.689e-05"
+      },
+      "elapsed_seconds": 71.87742349994369,
+      "resumed_from": null
+    },
+    "weights": "${REPO}\\data\\workspaces\\job_1\\4fe1e9f84e7e4aad8ed4fe79f60f2e50\\train\\weights\\best.pt",
+    "onnx": "${REPO}\\data\\workspaces\\job_1\\4fe1e9f84e7e4aad8ed4fe79f60f2e50\\model.onnx",
+    "registered": true
+  },
+  "pt_vs_ort": {
+    "image": "${REPO}\\data\\datasets\\coco128\\images\\train2017\\000000000009.jpg",
+    "pytorch": {
+      "count": 3,
+      "latency_ms": 117.66350001562387,
+      "boxes": [
+        {
+          "class_id": 45,
+          "class_name": "bowl",
+          "confidence": 0.9428642988204956,
+          "x1": 0.0,
+          "y1": 193.3782958984375,
+          "x2": 622.6510009765625,
+          "y2": 480.0
+        },
+        {
+          "class_id": 45,
+          "class_name": "bowl",
+          "confidence": 0.827840268611908,
+          "x1": 1.2705078125,
+          "y1": 2.363128662109375,
+          "x2": 632.6815185546875,
+          "y2": 435.2454528808594
+        },
+        {
+          "class_id": 50,
+          "class_name": "broccoli",
+          "confidence": 0.32734736800193787,
+          "x1": 256.03387451171875,
+          "y1": 241.223876953125,
+          "x2": 566.8002319335938,
+          "y2": 477.343017578125
+        }
+      ]
+    },
+    "onnx": {
+      "count": 4,
+      "latency_ms": 92.63510000891984,
+      "boxes": [
+        {
+          "class_id": 45,
+          "class_name": "bowl",
+          "confidence": 0.9481723308563232,
+          "x1": 0.0,
+          "y1": 193.2454833984375,
+          "x2": 622.6055908203125,
+          "y2": 479.20556640625
+        },
+        {
+          "class_id": 45,
+          "class_name": "bowl",
+          "confidence": 0.7552652359008789,
+          "x1": 1.347412109375,
+          "y1": 4.5748291015625,
+          "x2": 632.9299926757812,
+          "y2": 433.7894287109375
+        },
+        {
+          "class_id": 45,
+          "class_name": "bowl",
+          "confidence": 0.44056209921836853,
+          "x1": 0.117340087890625,
+          "y1": 9.355758666992188,
+          "x2": 459.0406188964844,
+          "y2": 390.71356201171875
+        },
+        {
+          "class_id": 50,
+          "class_name": "broccoli",
+          "confidence": 0.34085148572921753,
+          "x1": 257.4794921875,
+          "y1": 241.73919677734375,
+          "x2": 566.9879150390625,
+          "y2": 477.36285400390625
+        }
+      ]
+    },
+    "mean_iou": 0.9934027592600415,
+    "count_diff": -1
+  },
+  "large_image": {
+    "path": "${REPO}\\data\\runs\\large_tile.jpg",
+    "width": 1920,
+    "height": 1440,
+    "full_count": 0,
+    "full_latency_ms": 104.86660001333803,
+    "tiled_count": 102,
+    "tiled_latency_ms": 1785.7388000702485,
+    "tile_count": 48
+  },
+  "batch_infer": [
+    {
+      "image": "000000000009.jpg",
+      "count": 3,
+      "latency_ms": 98.32140000071377
+    },
+    {
+      "image": "000000000025.jpg",
+      "count": 1,
+      "latency_ms": 115.40719994809479
+    },
+    {
+      "image": "000000000030.jpg",
+      "count": 2,
+      "latency_ms": 101.41610004939139
+    }
+  ],
+  "export": {
+    "format": "application/json",
+    "path": "${REPO}\\data\\runs\\detections.json",
+    "bytes": 626
+  },
+  "video_infer": {
+    "path": "${REPO}\\data\\runs\\tiny.mp4",
+    "frames": 4,
+    "total_latency_ms": 270.5727000720799
+  },
+  "pause": {
+    "job_id": 2,
+    "status_after_pause": "paused",
+    "error": "JobPaused: job 2 paused by user",
+    "seconds": 29.82,
+    "checkpoint": "last.pt",
+    "ok": true,
+    "status_after_resume": "succeeded",
+    "resume_seconds": 40.28
+  },
+  "crash_recovery": {
+    "job_id": 3,
+    "recovered": true
+  },
+  "ort_service": {
+    "started": true,
+    "health": {
+      "status": "ok",
+      "model": "${REPO}\\data\\workspaces\\job_1\\4fe1e9f84e7e4aad8ed4fe79f60f2e50\\model.onnx",
+      "loaded": true,
+      "imgsz": 320
+    },
+    "status_code": 200,
+    "count": 4,
+    "sample": [
+      {
+        "class_id": 45,
+        "class_name": "bowl",
+        "confidence": 0.9481723308563232,
+        "xyxy": [
+          0.0,
+          193.2454833984375,
+          622.6055908203125,
+          479.20556640625
+        ]
+      },
+      {
+        "class_id": 45,
+        "class_name": "bowl",
+        "confidence": 0.7552652359008789,
+        "xyxy": [
+          1.347412109375,
+          4.5748291015625,
+          632.9299926757812,
+          433.7894287109375
+        ]
+      },
+      {
+        "class_id": 45,
+        "class_name": "bowl",
+        "confidence": 0.44056209921836853,
+        "xyxy": [
+          0.117340087890625,
+          9.355758666992188,
+          459.0406188964844,
+          390.71356201171875
+        ]
+      }
+    ]
+  },
+  "finished_at": "2026-11-28T16:53:26+08:00"
+}

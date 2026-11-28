@@ -45,6 +45,16 @@ def _onnx_imgsz(onnx_path: str | Path) -> int:
     return int(spatial[-1]) if spatial else 640
 
 
+def _read_image(image_path: Path):
+    try:
+        img = cv2.imread(str(image_path))
+    except OSError as exc:
+        raise ValueError(f"cannot read image: {image_path}") from exc
+    if img is None:
+        raise ValueError(f"cannot read image: {image_path}")
+    return img
+
+
 def infer_pytorch(
     weights: str | Path,
     image_path: Path,
@@ -52,14 +62,13 @@ def infer_pytorch(
     device: str = "cpu",
     imgsz: int | None = None,
 ) -> InferenceResponse:
-    img = cv2.imread(str(image_path))
-    if img is None:
-        raise ValueError(f"cannot read image: {image_path}")
+    img = _read_image(image_path)
     model = YOLO(str(weights))
     t0 = time.perf_counter()
-    kwargs = {"source": str(image_path), "conf": conf, "device": device, "verbose": False}
+    kwargs = {"source": img, "conf": conf, "device": device, "verbose": False}
     if imgsz:
         kwargs["imgsz"] = imgsz
+        kwargs["rect"] = False
     results = model.predict(**kwargs)
     latency = (time.perf_counter() - t0) * 1000
     h, w = img.shape[:2]
@@ -75,19 +84,15 @@ def infer_pytorch(
 
 
 def infer_onnx(onnx_path: str | Path, image_path: Path, conf: float = 0.25, imgsz: int | None = None) -> InferenceResponse:
-    img = cv2.imread(str(image_path))
-    if img is None:
-        raise ValueError(f"cannot read image: {image_path}")
-    session = ort.InferenceSession(str(onnx_path), providers=["CPUExecutionProvider"])
+    img = _read_image(image_path)
     size = imgsz or _onnx_imgsz(onnx_path)
     model = YOLO(str(onnx_path), task="detect")
     t0 = time.perf_counter()
-    results = model.predict(source=str(image_path), conf=conf, imgsz=size, verbose=False)
+    results = model.predict(source=img, conf=conf, imgsz=size, device="cpu", verbose=False)
     latency = (time.perf_counter() - t0) * 1000
     h, w = img.shape[:2]
     names = model.names
     dets = _to_detections(results[0], names)
-    _ = session
     return InferenceResponse(
         backend="onnx",
         latency_ms=latency,
@@ -100,11 +105,11 @@ def infer_onnx(onnx_path: str | Path, image_path: Path, conf: float = 0.25, imgs
 def _collect_tile_raw(
     model: YOLO,
     img: np.ndarray,
-    image_path: Path,
     tiles: list[tuple[int, int, int, int]],
     *,
     conf: float,
     device: str,
+    imgsz: int,
 ) -> tuple[list[list[float]], list[float], list[int], float]:
     all_boxes: list[list[float]] = []
     all_scores: list[float] = []
@@ -114,20 +119,13 @@ def _collect_tile_raw(
         crop = img[y1:y2, x1:x2]
         if crop.size == 0:
             continue
-        tmp = image_path.parent / f"_tile_{x1}_{y1}.jpg"
-        cv2.imwrite(str(tmp), crop)
-        try:
-            results = model.predict(source=str(tmp), conf=conf, device=device, verbose=False)
-            if results[0].boxes is not None:
-                for box in results[0].boxes:
-                    bx = box.xyxy[0].tolist()
-                    gx1, gy1, gx2, gy2 = remap_tile_box((bx[0], bx[1], bx[2], bx[3]), x1, y1)
-                    all_boxes.append([gx1, gy1, gx2, gy2])
-                    all_scores.append(float(box.conf[0]))
-                    all_classes.append(int(box.cls[0]))
-        finally:
-            if tmp.exists():
-                tmp.unlink()
+        results = model.predict(source=crop, conf=conf, device=device, imgsz=imgsz, rect=False, verbose=False)
+        if results[0].boxes is not None:
+            for box in results[0].boxes:
+                box_xyxy = box.xyxy[0].tolist()
+                all_boxes.append(list(remap_tile_box(box_xyxy, x1, y1)))
+                all_scores.append(float(box.conf[0]))
+                all_classes.append(int(box.cls[0]))
     latency = (time.perf_counter() - t0) * 1000
     return all_boxes, all_scores, all_classes, latency
 
@@ -167,14 +165,13 @@ def infer_tiled_detailed(
     nms_iou: float = 0.5,
 ) -> tuple[InferenceResponse, dict]:
     """Tiled infer plus pre/post-NMS duplicate stats for acceptance tables."""
-    img = cv2.imread(str(image_path))
-    if img is None:
-        raise ValueError(f"cannot read image: {image_path}")
+    img = _read_image(image_path)
     h, w = img.shape[:2]
-    model = YOLO(str(weights))
+    model = YOLO(str(weights), task="detect")
     tiles = generate_tiles(w, h, tile_size=tile_size, overlap=overlap)
     all_boxes, all_scores, all_classes, latency = _collect_tile_raw(
-        model, img, image_path, tiles, conf=conf, device=device
+        model, img, tiles, conf=conf, device=device,
+        imgsz=_onnx_imgsz(weights) if backend == "onnx" else tile_size,
     )
     names = model.names
     dets: list[DetectionBox] = []

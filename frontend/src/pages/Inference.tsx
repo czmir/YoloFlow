@@ -14,6 +14,12 @@ interface ModelVersion {
   version: string;
 }
 
+interface BackendComparison {
+  pytorch: InferenceResponse;
+  onnx: InferenceResponse;
+  iou_overlap_mean: number;
+}
+
 export default function InferencePage() {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [models, setModels] = useState<ModelVersion[]>([]);
@@ -26,6 +32,9 @@ export default function InferencePage() {
   const [result, setResult] = useState<InferenceResponse | null>(null);
   const [batchCount, setBatchCount] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [comparing, setComparing] = useState(false);
+  const [comparison, setComparison] = useState<InferenceResponse[]>([]);
+  const [overlap, setOverlap] = useState<number | null>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const previewRef = useRef<HTMLImageElement>(null);
 
@@ -80,6 +89,36 @@ export default function InferencePage() {
       setBatchCount(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  async function onCompare(backends: boolean) {
+    if (!file) return;
+    setComparing(true);
+    setError(null);
+    setComparison([]);
+    setOverlap(null);
+    const form = new FormData();
+    form.append("file", file);
+    appendModelFields(form);
+    try {
+      if (backends) {
+        const run = await apiPostForm<BackendComparison>("/inference/compare-onnx", form);
+        setComparison([run.pytorch, run.onnx]);
+        setOverlap(run.iou_overlap_mean);
+      } else {
+        form.set("tile_size", "320");
+        form.set("imgsz", "320");
+        form.set("tiled", "false");
+        const full = await apiPostForm<InferenceResponse>("/inference/detect", form);
+        form.set("tiled", "true");
+        const sliced = await apiPostForm<InferenceResponse>("/inference/detect", form);
+        setComparison([full, sliced]);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setComparing(false);
     }
   }
 
@@ -182,6 +221,15 @@ export default function InferencePage() {
           <button type="button" className="secondary" onClick={() => onExport("csv")}>
             Export CSV
           </button>
+          <p style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <button type="button" disabled={!file || comparing} onClick={() => onCompare(false)}>
+              Compare full image and slices
+            </button>
+            <button type="button" disabled={!file || comparing || (jobId === "" && modelId === "")} onClick={() => onCompare(true)}>
+              Compare PyTorch and ONNX
+            </button>
+          </p>
+          {comparing && <p role="status">Running comparison…</p>}
         </form>
         <p style={{ marginTop: 12 }}>
           <input type="file" accept="image/*" multiple onChange={(e) => setBatchFiles(e.target.files)} />
@@ -198,6 +246,25 @@ export default function InferencePage() {
         {batchCount !== null && <p className="mono">Processed {batchCount} frame(s)/image(s)</p>}
         {error && <p className="mono">{error}</p>}
       </div>
+      {comparison.length > 0 && (
+        <section className="card" aria-label="Inference comparison">
+          <h3>Inference comparison</h3>
+          <table>
+            <thead><tr><th>Mode</th><th>Detections</th><th>Inference time</th><th>Passes</th></tr></thead>
+            <tbody>
+              {comparison.map((mode) => (
+                <tr key={mode.backend}>
+                  <td>{mode.backend}</td>
+                  <td>{mode.detections.length}</td>
+                  <td>{mode.latency_ms.toFixed(1)} ms</td>
+                  <td>{mode.tiled ? mode.tile_count : 1}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {overlap !== null && <p>Mean best box overlap {overlap.toFixed(3)} IoU</p>}
+        </section>
+      )}
       {result && (
         <div className="card">
           <p className="mono" data-testid="infer-result">

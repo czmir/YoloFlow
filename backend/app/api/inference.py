@@ -64,12 +64,15 @@ async def detect(
     weights_path: str | None = Form(default=None),
     conf: float = Form(default=0.25),
     tiled: bool = Form(default=False),
+    imgsz: int | None = Form(default=None, ge=32, le=1920),
     tile_size: int = Form(default=640),
     overlap: float = Form(default=0.2),
     backend: str = Form(default="pytorch"),
     db: Session = Depends(get_db),
 ) -> InferenceResponse:
     weights, onnx_path = _resolve_weights(job_id, model_version_id, weights_path, db)
+    if backend == "onnx" and (onnx_path is None or not onnx_path.is_file()):
+        raise HTTPException(status_code=404, detail="onnx export not found")
     hw = detect_device()
     device = hw.device if hw.cuda_available else "cpu"
 
@@ -85,7 +88,7 @@ async def detect(
         elif backend == "onnx" and onnx_path:
             result = infer_onnx(onnx_path, image_path, conf=conf)
         else:
-            result = infer_pytorch(weights, image_path, conf=conf, device=device)
+            result = infer_pytorch(weights, image_path, conf=conf, device=device, imgsz=imgsz)
 
         db.add(
             InferenceRun(
