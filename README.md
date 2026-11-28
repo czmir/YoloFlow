@@ -16,6 +16,10 @@ Owner-oriented architecture notes (Chinese): [docs/owner-tech-guide.zh-CN.md](do
 
 ## Screenshots
 
+![Live full-image and sliced inference comparison](docs/images/ui-compare-slices.png)
+
+[PyTorch and ONNX comparison](docs/images/ui-compare-onnx.png) · [Animated walkthrough](docs/images/inference-compare-demo.gif)
+
 ![Home / inference](docs/images/ui-home.png)
 
 ![Training](docs/images/ui-training.png)
@@ -59,6 +63,7 @@ flowchart TB
   end
   subgraph worker [Standalone worker optional]
     POLL[Claim + Ultralytics]
+    ATTEMPT[Isolated attempt directory]
   end
   subgraph ort [ORT service :8001]
     ORT[ONNX detect]
@@ -66,6 +71,7 @@ flowchart TB
   ui <-->|REST + WS| api
   Q -->|same claim()| POLL
   POLL --> DB
+  POLL --> ATTEMPT
   REG --> DB
   ort -. optional .-> DB
 ```
@@ -80,6 +86,8 @@ flowchart TB
 | `scripts/` | setup, verify, acceptance |
 
 ## Quick start
+
+Open **Inference**, upload an image, then select **Compare full image and slices**. Both requests use a 320-pixel model input and the same confidence threshold. Select a trained job or registered model with an ONNX export to compare backends. The [COCO128 small-object experiment](docs/small-object-benchmark.md) records per-image results and the cost of using overlapping tiles.
 
 Pinned deps live in `backend/requirements.txt`. **Local and CI install the same versions.**
 

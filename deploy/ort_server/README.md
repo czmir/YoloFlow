@@ -6,7 +6,7 @@ Lightweight FastAPI wrapper around an Ultralytics-loadable `.onnx` model.
 
 ```bash
 # Point at an exported ONNX from a training job
-export YOLOFLOW_ORT_MODEL=/app/data/workspaces/job_1/model.onnx
+export YOLOFLOW_ORT_MODEL=/app/data/workspaces/job_1/ATTEMPT_ID/model.onnx
 docker compose --profile ort up ort-inference
 ```
 
@@ -23,7 +23,7 @@ curl -s -X POST http://127.0.0.1:8001/v1/detect \
 ## Local (no Docker)
 
 ```bash
-export YOLOFLOW_ORT_MODEL=./data/workspaces/job_1/model.onnx
+export YOLOFLOW_ORT_MODEL=./data/workspaces/job_1/ATTEMPT_ID/model.onnx
 pip install fastapi uvicorn ultralytics onnxruntime
 python deploy/ort_server/main.py
 ```

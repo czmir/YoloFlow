@@ -9,7 +9,9 @@ from app.services.job_state import (
     JobPaused,
     claim_pending_job,
     is_control_exception,
+    lock_active_job,
     recover_orphan_jobs,
+    touch_heartbeat,
 )
 from conftest import make_dataset
 
@@ -114,6 +116,44 @@ def test_control_exceptions_not_substring():
     assert not is_control_exception(RuntimeError("export cancelled by onnx"), JobCancelled)
     assert not is_control_exception(ValueError("paused video file"), JobPaused)
     assert is_control_exception(JobPaused("job 2 paused by user"), JobPaused)
+
+
+def test_expired_worker_cannot_renew_lease():
+    with SessionLocal() as db:
+        ds = make_dataset(db, "expired-renewal")
+        owner = "expired:123"
+        job = TrainingJob(
+            name="expired-renewal",
+            dataset_id=ds.id,
+            status=JobStatus.running.value,
+            claimed_by=owner,
+            heartbeat_at=datetime(2000, 1, 1, tzinfo=timezone.utc),
+        )
+        db.add(job)
+        db.commit()
+        job_id = job.id
+
+        touch_heartbeat(db, job_id, owner=owner)
+
+        assert job_id in recover_orphan_jobs(db)
+        assert db.get(TrainingJob, job_id).status == JobStatus.pending.value
+
+
+def test_old_attempt_cannot_publish_after_reclaim():
+    _clear_pending()
+    with SessionLocal() as db:
+        dataset = make_dataset(db, "old-attempt")
+        db.add(TrainingJob(name="old-attempt", dataset_id=dataset.id))
+        db.commit()
+        first = claim_pending_job(db, owner="same-worker")
+        job_id, old_started_at = first.id, first.started_at
+        first.heartbeat_at = datetime(2000, 1, 1, tzinfo=timezone.utc)
+        db.commit()
+        assert job_id in recover_orphan_jobs(db)
+        current = claim_pending_job(db, owner="same-worker")
+        assert current.id == job_id
+        assert lock_active_job(db, job_id, "same-worker", old_started_at) is None
+        assert lock_active_job(db, job_id, "same-worker", current.started_at) is not None
 
 
 def test_acceptance_onnx_skip_is_failure():
