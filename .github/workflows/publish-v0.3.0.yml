@@ -1,0 +1,23 @@
+name: Publish v0.3.0
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/publish-v0.3.0.yml]
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - name: Publish the tested release commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET: 10a5b66f0a1300293a8fefe2f32372b8f38d359d
+        run: |
+          if gh release view v0.3.0 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            actual=$(gh release view v0.3.0 --repo "$GITHUB_REPOSITORY" --json targetCommitish --jq .targetCommitish)
+            test "$actual" = "$TARGET"
+          else
+            gh release create v0.3.0 --repo "$GITHUB_REPOSITORY" --target "$TARGET" --title "YoloFlow v0.3.0" --notes "Lease-fenced training attempts, checkpoint resume, interactive inference comparisons, and a reproducible COCO128 experiment. See docs/small-object-benchmark.md for the measurements and limitations."
+          fi
